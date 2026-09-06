@@ -7,7 +7,7 @@ from html import escape
 import streamlit as st
 from dotenv import load_dotenv
 
-from analyst import CompetitorAnalyst
+from analyst import CompetitorAnalyst, ModelOutputError
 from pipeline import CompetitiveResearchPipeline
 from youcom_client import YouComClient
 
@@ -104,7 +104,9 @@ if run:
                 st.session_state["research_status"] = result.get("status", "")
             except Exception as exc:
                 status.update(label="Research failed", state="error")
-                if "402" in str(exc) and ("Insufficient Balance" in str(exc) or "credits" in str(exc).lower()):
+                if isinstance(exc, ModelOutputError):
+                    st.error(str(exc))
+                elif "402" in str(exc) and ("Insufficient Balance" in str(exc) or "credits" in str(exc).lower()):
                     st.error(
                         "OpenRouter rejected the request because this API key has no credits. "
                         "Add credits to OpenRouter or choose a funded model, then run the pipeline again."

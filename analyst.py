@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+from typing import Callable, TypeVar
+
+from langchain_core.messages import HumanMessage
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
@@ -8,10 +11,19 @@ from langchain_openai import ChatOpenAI
 from models import CompetitorReport, SearchResult
 
 
+
+T = TypeVar("T")
+
+
+class ModelOutputError(ValueError):
+    """The provider responded, but did not produce usable structured output."""
+
+
 class CompetitorAnalyst:
     """Extracts competitor names and synthesizes reports from supplied evidence."""
 
     def __init__(self, api_key: str, model: str, app_url: str = "", app_name: str = "Market Signal") -> None:
+        self.model = model
         self.llm = ChatOpenAI(
             api_key=api_key,
             base_url="https://openrouter.ai/api/v1",
@@ -35,7 +47,9 @@ class CompetitorAnalyst:
                     "Return a JSON object with name, website, summary, positioning, pricing, "
                     "features, recent_news, strengths, watchouts, sources. "
                     "Website and sources must use only exact URLs present in evidence. "
-                    "Positioning must be a concise string. Return JSON only, without markdown.",
+                    "Name, website, summary, and positioning must be strings. "
+                    "Pricing, features, recent_news, strengths, watchouts, and sources "
+                    "must be arrays of strings. Return JSON only, without markdown.",
                 ),
                 ("human", "Company: {company}\nCompetitor: {competitor}\nEvidence:\n{evidence}"),
             ]
@@ -61,13 +75,13 @@ class CompetitorAnalyst:
         evidence = "\n".join(
             f"- {item.title}: {item.snippet} ({item.url})" for item in results
         )
-        response = self.llm.invoke(
-            self.discovery_prompt.format_messages(company=company, evidence=evidence)
+        values = self._invoke_validated(
+            self.discovery_prompt.format_messages(company=company, evidence=evidence),
+            lambda content: json.loads(self._extract_json_array(content)),
+            "competitor discovery",
         )
-        content = response.content if isinstance(response.content, str) else str(response.content)
-        raw = self._extract_json_array(content)
         names: list[str] = []
-        for value in json.loads(raw):
+        for value in values:
             if isinstance(value, str) and value.strip() and value.strip().casefold() != company.strip().casefold():
                 if value.strip().casefold() not in {name.casefold() for name in names}:
                     names.append(value.strip())
@@ -82,16 +96,19 @@ class CompetitorAnalyst:
         if not any(results.values()):
             return CompetitorReport(name=competitor, summary="Evidence unavailable")
         evidence = self._format_evidence(results)
-        response = self.llm.invoke(
+        def parse_report(content: str) -> CompetitorReport:
+            report_data = json.loads(self._extract_json(content))
+            report_data["name"] = competitor
+            report_data.setdefault("positioning", report_data.get("summary", "Evidence unavailable"))
+            return CompetitorReport.model_validate(report_data)
+
+        report = self._invoke_validated(
             self.prompt.format_messages(
                 company=company, competitor=competitor, evidence=evidence
-            )
+            ),
+            parse_report,
+            "competitor analysis",
         )
-        content = response.content if isinstance(response.content, str) else str(response.content)
-        report_data = json.loads(self._extract_json(content))
-        report_data["name"] = competitor
-        report_data.setdefault("positioning", report_data.get("summary", "Evidence unavailable"))
-        report = CompetitorReport.model_validate(report_data)
         evidence_urls = {item.url for items in results.values() for item in items}
         report.sources = list(dict.fromkeys(url for url in report.sources if url in evidence_urls))
         if report.website not in evidence_urls:
@@ -107,19 +124,64 @@ class CompetitorAnalyst:
                 chunks.append(f"- {item.title}: {item.snippet} ({item.url}); date: {item.published_date or 'unknown'}")
         return "\n".join(chunks) or "No search evidence returned."
 
+    def _invoke_validated(self, messages: list, parse: Callable[[str], T], stage: str) -> T:
+        # Output retries are separate from the SDK's HTTP/network retries.
+        # Regenerate from the original evidence; do not treat malformed output as evidence.
+        for attempt in range(2):
+            request = list(messages)
+            if attempt:
+                request.append(HumanMessage(
+                    content="Your previous response could not be parsed or validated. "
+                    "Return only the complete JSON requested above, using exactly the "
+                    "specified field types. Do not include commentary or reasoning. "
+                    "Use only the original evidence; do not invent missing facts."
+                ))
+            response = self.llm.invoke(request)
+            try:
+                return parse(self._response_text(response.content))
+            except ValueError:
+                if attempt:
+                    raise ModelOutputError(
+                        f"The configured model ({self.model}) did not return valid JSON "
+                        f"for {stage} after two attempts. Retry the research, or set "
+                        "OPENROUTER_MODEL in .env to a model that reliably follows JSON "
+                        "instructions and restart Streamlit."
+                    ) from None
+        raise AssertionError("Unreachable")
+
+    @staticmethod
+    def _response_text(content: object) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            # LangChain may return text blocks alongside non-text/reasoning blocks.
+            return "".join(
+                block if isinstance(block, str) else block["text"]
+                for block in content
+                if isinstance(block, str) or (
+                    isinstance(block, dict)
+                    and block.get("type") in {"text", "output_text"}
+                    and isinstance(block.get("text"), str)
+                )
+            )
+        raise ValueError("Model returned no text content")
+
+    @staticmethod
+    def _extract_json_value(content: str, expected_type: type) -> str:
+        # raw_decode respects strings/escapes and stops at the end of the value,
+        # unlike slicing from the first opening brace to the last closing brace.
+        starts = [pos for char in ("{", "[") if (pos := content.find(char)) >= 0]
+        if not starts:
+            raise ValueError("Model returned no JSON value")
+        value, _ = json.JSONDecoder().raw_decode(content[min(starts):])
+        if not isinstance(value, expected_type):
+            raise ValueError("Model returned the wrong JSON container")
+        return json.dumps(value)
+
     @staticmethod
     def _extract_json(content: str) -> str:
-        content = content.strip()
-        if content.startswith("```"):
-            content = content.strip("`").removeprefix("json").strip()
-        start, end = content.find("{"), content.rfind("}")
-        if start < 0 or end < start:
-            raise ValueError("Analyst did not return a JSON object")
-        return content[start : end + 1]
+        return CompetitorAnalyst._extract_json_value(content, dict)
 
     @staticmethod
     def _extract_json_array(content: str) -> str:
-        start, end = content.find("["), content.rfind("]")
-        if start < 0 or end < start:
-            raise ValueError("Competitor discovery did not return a JSON array")
-        return content[start : end + 1]
+        return CompetitorAnalyst._extract_json_value(content, list)

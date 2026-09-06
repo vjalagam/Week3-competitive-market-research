@@ -79,8 +79,9 @@ search, or an agentic tool loop would be a separate feature change.
    cannot relabel an existing snapshot. A new run clears the old snapshot.
    JSON download includes `company` and an array of serialized `reports`.
 
-There are at most seven search calls and four model invocations for three
-competitors before provider retries. Empty evidence can reduce model calls.
+There are at most seven search calls and four initial model invocations for three
+competitors. Each model stage can regenerate once for invalid output, for up to
+eight model invocations before SDK retries. Empty evidence can reduce model calls.
 Competitors run sequentially; only the two searches within a competitor run
 concurrently. A legacy title-based `search_competitors` fallback remains for
 clients without evidence discovery; the application uses the evidence/LLM path.
@@ -146,9 +147,11 @@ There is no database, durable checkpoint, email delivery, or background job.
 - Blank input fails before API work. Empty discovery completes with zero cards.
 - Search uses a 12-second request timeout and no application retry. A 401 or
   403 has a targeted message. Other HTTP/network failures stop the run.
-- LLM SDK retries selected transient failures. Invalid model JSON or schema
-  errors stop the run; no automatic model-output repair or provider fallback
-  is implemented.
+- LLM SDK retries selected transient failures. Discovery and analysis each
+  regenerate once from the original evidence if output is empty, malformed,
+  or fails validation. Text-block responses and fenced JSON are supported.
+  A second invalid response stops the run with an actionable model-configuration
+  message instead of a raw parsing traceback. No provider fallback is implemented.
 - A failure in either search or any competitor aborts the run. Earlier reports
   from that run are not recovered or shown. Partial-result recovery and
   category-level failure handling remain future work.

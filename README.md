@@ -40,7 +40,9 @@ tool agent, or academic search in the current implementation. The original
 concept diagram is reconciled with the code in the architecture document.
 
 Reports are held in the current session. New runs clear the previous snapshot.
-A provider or parsing failure stops the run; partial output is not recovered.
+Malformed model output is regenerated once using the original evidence. If
+the second response is invalid, the UI suggests retrying or changing
+`OPENROUTER_MODEL`. Provider failures stop the run; partial output is not recovered.
 Empty evidence is shown as unavailable. Source URLs must come from retrieved
 evidence, but factual accuracy still requires reviewing the sources.
 

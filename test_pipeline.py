@@ -1,7 +1,7 @@
 import json
 
 from models import CompetitorReport, SearchResult
-from analyst import CompetitorAnalyst
+from analyst import CompetitorAnalyst, ModelOutputError
 from pipeline import CompetitiveResearchPipeline
 from youcom_client import YouComClient
 
@@ -205,6 +205,72 @@ def test_ui_keeps_snapshot_identity_and_escapes_model_html():
     app.button[0].click().run()
     assert "reports" not in app.session_state
 
+
+
+def test_analyst_retries_empty_prose_and_truncated_outputs():
+    evidence = {"web": [SearchResult(title="Alpha", url="https://example.com")]}
+    for invalid in ("", "Here is my analysis.", '{"summary":', '{"summary":"ok","name":'):
+        analyst = make_analyst(invalid)
+        analyst.llm.invoke.side_effect = [
+            SimpleNamespace(content=invalid),
+            SimpleNamespace(content='{"summary": "Recovered"}'),
+        ]
+        assert analyst.analyze("Acme", "Alpha", evidence).summary == "Recovered"
+        assert analyst.llm.invoke.call_count == 2
+        retry = analyst.llm.invoke.call_args.args[0]
+        assert "previous response" in retry[-1].content
+        assert "https://example.com" in retry[1].content
+
+
+def test_response_text_blocks_are_parsed_without_retry():
+    analyst = make_analyst([
+        {"type": "reasoning", "text": "This is not report JSON"},
+        {"type": "text", "text": '{"summary":'},
+        {"type": "text", "text": '"Block content"}'},
+    ])
+    report = analyst.analyze("Acme", "Alpha", {
+        "web": [SearchResult(title="Alpha", url="https://example.com")]
+    })
+    assert report.summary == "Block content"
+    assert analyst.llm.invoke.call_count == 1
+
+
+def test_json_parser_handles_fences_escaped_braces_and_trailing_commentary():
+    raw = 'Preface\n```json\n{"summary": "Text with } brace"}\n```\nTrailing {comment}'
+    assert json.loads(CompetitorAnalyst._extract_json(raw))["summary"] == "Text with } brace"
+    with unittest.TestCase().assertRaises(ValueError):
+        CompetitorAnalyst._extract_json('[{"summary": "Wrong container"}]')
+
+
+def test_discovery_retries_invalid_response():
+    analyst = make_analyst("")
+    analyst.llm.invoke.side_effect = [
+        SimpleNamespace(content="Alpha and Beta"),
+        SimpleNamespace(content='["Alpha", "Beta"]'),
+    ]
+    assert analyst.discover_competitors("Acme", [
+        SearchResult(title="Alternatives", url="https://example.com")
+    ]) == ["Alpha", "Beta"]
+    assert analyst.llm.invoke.call_count == 2
+
+
+def test_output_retries_are_bounded_and_actionable():
+    analyst = make_analyst(None)
+    with unittest.TestCase().assertRaisesRegex(ModelOutputError, "after two attempts"):
+        analyst.analyze("Acme", "Alpha", {
+            "web": [SearchResult(title="Alpha", url="https://example.com")]
+        })
+    assert analyst.llm.invoke.call_count == 2
+
+
+def test_provider_errors_are_not_retried_as_json_errors():
+    analyst = make_analyst("")
+    analyst.llm.invoke.side_effect = RuntimeError("provider unavailable")
+    with unittest.TestCase().assertRaisesRegex(RuntimeError, "provider unavailable"):
+        analyst.discover_competitors("Acme", [
+            SearchResult(title="Alternatives", url="https://example.com")
+        ])
+    assert analyst.llm.invoke.call_count == 1
 
 def load_tests(loader, tests, pattern):
     return unittest.TestSuite(
