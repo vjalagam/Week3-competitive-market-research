@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import json
+from html import escape
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -38,7 +40,7 @@ st.markdown(
 st.markdown(
     '<div class="hero"><div class="eyebrow">Market intelligence / live web signals</div>'
     '<h1>See who is moving around your market.</h1>'
-    '<p>Discover the three closest competitors, scan current web and news evidence, and turn it into decision-ready research cards.</p></div>',
+    '<p>Discover up to three competitors, scan current web and news evidence, and turn it into decision-ready research cards.</p></div>',
     unsafe_allow_html=True,
 )
 
@@ -56,7 +58,7 @@ with st.sidebar:
             <div class="flow-node"><strong>LangGraph orchestrator</strong><div class="flow-detail">Runs the discover → research → analyze graph and controls the queue loop.</div></div>
 
             <div class="flow-group">Graph nodes</div>
-            <div class="flow-node"><strong>1. Discovery node</strong><div class="flow-detail">You.com returns fresh evidence. OpenRouter extracts three real competitor companies.</div></div>
+            <div class="flow-node"><strong>1. Discovery node</strong><div class="flow-detail">You.com returns fresh evidence. OpenRouter extracts up to three real competitor companies.</div></div>
             <div class="flow-arrow">↓</div>
             <div class="flow-node"><strong>2. Queue router</strong><div class="flow-detail">Sends the next competitor to research. When the queue is empty, the workflow ends.</div></div>
             <div class="flow-arrow">↺</div>
@@ -76,6 +78,8 @@ with st.sidebar:
         )
 
 if run:
+    for key in ("reports", "research_status", "report_company"):
+        st.session_state.pop(key, None)
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
     you_key = os.getenv("YDC_API_KEY")
     if not company.strip():
@@ -89,12 +93,13 @@ if run:
                     YouComClient(you_key, endpoint=os.getenv("YDC_SEARCH_ENDPOINT")),
                     CompetitorAnalyst(
                         openrouter_key,
-                        os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat"),
+                        os.getenv("OPENROUTER_MODEL", "openrouter/free"),
                         os.getenv("APP_URL", "http://localhost:8501"),
                     ),
                 )
                 result = pipeline.run(company)
                 status.update(label="Research complete", state="complete", expanded=False)
+                st.session_state["report_company"] = result["company"]
                 st.session_state["reports"] = result.get("reports", [])
                 st.session_state["research_status"] = result.get("status", "")
             except Exception as exc:
@@ -119,13 +124,22 @@ if run:
 
 reports = st.session_state.get("reports", [])
 if reports:
-    st.markdown(f"### Competitive snapshot for {company}")
+    st.markdown(f"### Competitive snapshot for {st.session_state.get('report_company', '')}")
     st.caption(f"{len(reports)} structured reports generated from live web and news searches.")
+    st.download_button(
+        "Download JSON report",
+        data=json.dumps({
+            "company": st.session_state.get("report_company", ""),
+            "reports": [report.model_dump() for report in reports],
+        }, indent=2),
+        file_name="competitive-research.json",
+        mime="application/json",
+    )
     for report in reports:
         st.markdown(
-            f'<div class="report"><h3>{report.name}</h3>'
-            f'<p>{report.summary}</p>'
-            f'<span class="tag">{report.positioning or report.summary or "Evidence unavailable"}</span></div>',
+            f'<div class="report"><h3>{escape(report.name)}</h3>'
+            f'<p>{escape(report.summary)}</p>'
+            f'<span class="tag">{escape(report.positioning or report.summary or "Evidence unavailable")}</span></div>',
             unsafe_allow_html=True,
         )
         with st.expander(f"Open {report.name} analysis"):
@@ -141,7 +155,7 @@ if reports:
             st.table(analysis_rows)
             st.markdown("**Sources**")
             for source in report.sources:
-                st.markdown(f'<div class="source">{source}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="source">{escape(source)}</div>', unsafe_allow_html=True)
 else:
     status_message = st.session_state.get("research_status")
     if status_message:

@@ -1,259 +1,172 @@
-# Market Signal
+# Market Signal: architecture and code review
 
-## Project Architecture and Technical Design
+Reviewed against the implementation on 2026-09-06.
 
-**Document purpose:** provide a readable technical overview for project review,
-handoff, and future maintenance.
+Market Signal is a Streamlit application that discovers up to three competitors,
+collects live search evidence, and produces validated research cards and a
+downloadable JSON snapshot. LangGraph controls a bounded, sequential competitor
+queue; web and news requests for each competitor run concurrently.
 
-Market Signal is a report-only competitive research application. A user enters
-a company in Streamlit; the workflow finds up to three competitors, gathers
-fresh web and news evidence, asks an OpenRouter-hosted open model to structure
-that evidence, validates the result, and renders the reports as cards.
+## Implemented architecture
 
-The system intentionally stops at research output. It does not send emails,
-write to a database, or take actions on behalf of the user.
+![Market Signal architecture](architecture-flow.svg)
 
-### Design Goals
-
-- Keep the user workflow short: one company input and one research action.
-- Keep research evidence fresh by querying You.com at run time.
-- Keep model output predictable with a fixed JSON shape and Pydantic validation.
-- Keep orchestration explicit so each competitor can be traced through the run.
-- Keep model cost at zero by using OpenRouter's `openrouter/free` router.
-
-### Technology Stack
-
-| Layer | Technology | Why it is used |
-| --- | --- | --- |
-| User interface | Streamlit | Input, progress, and report cards |
-| Orchestration | LangGraph | State-based workflow with a visible queue loop |
-| Search | You.com Search API | Fresh web and recent-news evidence |
-| Language model | OpenRouter free router | Routes to available open models at no model cost |
-| Validation | Pydantic | Normalizes and validates structured model responses |
-| Runtime | Python virtual environment | Keeps dependencies isolated |
-
-## The Shape of the System
-
-This is a hand-drawn-style service architecture: the Streamlit interface feeds
-the LangGraph orchestrator, which branches into discovery, research, and
-analysis. The green lane is the You.com tool/API boundary; the orange lane is
-the structured report returned to Streamlit.
-
-![Market Signal hand-drawn architecture flow](architecture-flow.svg)
-
-```text
-   . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
- .   INGESTION - FRESH SIGNALS ARRIVE WHEN A RESEARCH RUN STARTS          .
- .                                                                       .
- .  [ COMPANY NAME ] --> [ You.com competitor evidence ] --> [ web/news ] .
- .                                                                       .
-   . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
-                                                   |
-                                                   v
-                                     +---------------------+
-                                     |    USER QUESTION     |
-                                     |  company to research |
-                                     +----------+----------+
-                                                      |
-                                                      v
-                                     +---------------------+
-                                     | 1  DISCOVER          |
-                                     | LangGraph + You.com  |
-                                     | find up to 3 names   |
-                                     +----------+----------+
-                                                      |
-                                                      v
-                                     +---------------------+
-                                     | 2  RESEARCHER        |
-                                     | web search + news    |
-                                     | concurrent evidence |
-                                     +----------+----------+
-                                                      |
-                                                      v
-                                     +---------------------+
-                                     | 3  ANALYST           |
-                                     | OpenRouter free      |
-                                     | model returns JSON  |
-                                     +----------+----------+
-                                                      |
-                                                      v
-                                     +---------------------+
-                                     | 4  VALIDATOR         |
-                                     | Pydantic normalizes  |
-                                     | CompetitorReport    |
-                                     +----------+----------+
-                                                      |
-                                                      v
-                                     +---------------------+
-                                     | 5  REPORT CARD       |
-                                     | Streamlit renders    |
-                                     | answer + sources    |
-                                     +---------------------+
-                                                      |
-                                                      v
-                                     +---------------------+
-                                     | COMPETITIVE SNAPSHOT|
-                                     | pricing | features  |
-                                     | news | strengths    |
-                                     +---------------------+
-
-          . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
-         . RETRY SEARCH .                 . REGENERATE / PROVIDER RETRY     .
-         . 2 -> You.com                   . 3 -> OpenRouter free router     .
-          . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
-
-                         queue still has competitors?  yes -> step 2
-                         no -> step 5 -> final report cards
+```mermaid
+flowchart TD
+    UI[Streamlit: company input and credentials] --> D
+    subgraph LangGraph
+        D[discover: search evidence and extract names] --> Q{Queue has competitors?}
+        Q -->|yes| R[researcher: pop one competitor]
+        R --> A[analyst: synthesize and validate report]
+        A --> Q
+        Q -->|no| E[END]
+    end
+    D <-->|competitor evidence| Y[YouComClient / You.com Search API]
+    D <-->|name extraction| L[OpenRouter / ChatOpenAI]
+    R <-->|parallel web and news searches| Y
+    A <-->|evidence to JSON| L
+    E --> O[Streamlit cards and JSON download]
 ```
 
-   ### Updated Runtime Flow
+### Differences from the original concept diagram
 
-   ```text
-   1. User enters company
-          |
-          v
-   2. Streamlit checks input and API keys
-          |
-          v
-   3. discover: You.com competitor evidence
-          |
-          v
-   4. discover: free OpenRouter model extracts up to 3 names
-          |
-          v
-   5. queue router -- competitor remains? -- yes --> researcher
-          |                                           |
-          |                                           +--> web search
-          |                                           +--> news search (fresh)
-          |                                           |
-          |                                           v
-          |                                      analyst
-          |                                           |
-          |                                           +--> free model returns JSON
-          |                                           +--> Pydantic validates report
-          |                                           |
-          |                                           +--> loop to queue router
-          |
-          +-- no --> END --> Streamlit renders report cards
-
-   Any API, provider, parsing, or validation failure
-          |
-          v
-   Streamlit status becomes "Research failed" and shows an actionable error
-   ```
-
-## Request Walkthrough
-
-1. `app.py` loads `.env`, collects the company name, and checks that both API
-   keys are present. The model is configured with `OPENROUTER_MODEL`, currently
-   set to `openrouter/free`.
-2. `CompetitiveResearchPipeline` starts the LangGraph state machine with an
-   empty competitor queue and report list.
-3. The `discover` node asks You.com for competitor evidence. The analyst sends
-   that evidence to the OpenRouter free router, which selects an available free
-   open model to extract up to three competitor names.
-4. The queue router sends one competitor at a time to `researcher`.
-5. `YouComClient.parallel_research` runs two searches concurrently:
-   - web: pricing, features, product, and positioning
-   - news: recent announcements, funding, and product updates
-6. `analyst` gives the evidence to OpenRouter and parses the JSON response into
-   a `CompetitorReport` using Pydantic validation. Text and list fields are
-   normalized when a model returns a nested object or string instead of the
-   preferred shape.
-7. If competitors remain, the graph loops back to `researcher`. Otherwise it
-   ends and Streamlit renders the reports.
-
-## Main Components
-
-| Component | Responsibility |
+| Original concept | Implemented design |
 | --- | --- |
-| `app.py` | Streamlit page, credentials check, progress state, and report cards |
-| `pipeline.py` | LangGraph nodes, state transitions, and competitor queue |
-| `youcom_client.py` | You.com Search API adapter and parallel web/news research |
-| `analyst.py` | OpenRouter prompts, JSON extraction, and report generation |
-| `models.py` | Search result and report schemas plus response normalization |
-| `.env` | Local API credentials and model configuration; never commit it |
-| `test_pipeline.py` | Offline graph smoke test using local fake clients |
+| Groq LLM in researcher | OpenRouter in discovery and analyst; researcher makes direct search calls |
+| ReAct agent calling tools | Fixed LangGraph workflow; no autonomous tool-selection loop |
+| `youcom_tools.py` wrapper | `youcom_client.py` is called directly |
+| Web, news, academic search | Web and news sections of You.com's unified Search API; academic search is not implemented |
+| Analyst after research | Analyst runs for each competitor, then routing checks the remaining queue |
+| JSON report output | Pydantic report objects displayed as cards and serialized for download |
 
-## State Passing Through the Graph
+These are deliberate descriptions of the current code. Adding Groq, academic
+search, or an agentic tool loop would be a separate feature change.
 
-```text
-ResearchState
-  company            "Figma"
-  competitor_queue   ["Canva", "Miro", "..." ]
-  current_competitor "Canva"
-  search_results     { web: [...], news: [...] }
-  reports            [ CompetitorReport, ... ]
-  status             "Researched Canva"
-  error              null
-```
+## Components and contracts
 
-The queue is the small piece that makes the workflow repeatable: each research
-and analysis pass removes one competitor, appends one report, and either loops
-or finishes. Web and news searches for a single competitor run concurrently,
-while competitor reports are generated one at a time through the graph queue.
+| File | Responsibility |
+| --- | --- |
+| `app.py` | Load local configuration, validate input/keys, run workflow, store snapshot identity, escape card HTML, render and export reports |
+| `pipeline.py` | Compile discover → researcher → analyst graph, normalize the queue, stop at zero competitors |
+| `youcom_client.py` | POST Search API requests, select web/news sections, retain snippets and dates, filter URLs, execute two searches concurrently |
+| `analyst.py` | Extract names, request report JSON, normalize with Pydantic, restrict source URLs to supplied evidence |
+| `models.py` | SearchResult, CompetitorReport, and ResearchState contracts |
+| `test_pipeline.py` | Offline graph, parser, analyst, HTTP contract, and Streamlit regression tests |
+| `scripts/check_secrets.py` | Pattern-based credential scan of tracked and unignored files |
+| `.github/workflows/` | Credential scan and Python regression checks |
 
-## External Boundaries
+### Runtime sequence
 
-```text
-Browser
-  |
-  | HTTP
-  v
-Streamlit (localhost:8501)
-  |                         \
-  | X-API-Key                \ Authorization: Bearer
-  v                           v
-You.com Search API          OpenRouter API
-  |                           |
-   +-------- search evidence -+----> openrouter/free --> LLM JSON --> Pydantic report
-```
+1. Streamlit clears the previous snapshot on a new run, validates a nonblank
+   company and API keys, and constructs the search client and analyst.
+2. Discovery queries You.com for competitor evidence. If evidence is empty,
+   it returns no competitors without calling the model.
+3. OpenRouter extracts up to three company names. Names are trimmed,
+   deduplicated case-insensitively, and filtered to exclude the target.
+   The pipeline also enforces these queue invariants.
+4. Research pops one name and runs two requests in a two-worker thread pool:
+   product/pricing research selects `results.web`; recent-news research selects
+   `results.news` with `freshness=month`. Each category retains up to eight
+   unique HTTP(S) results and up to 6,000 snippet characters per result.
+5. Analysis sends category-labelled evidence, URLs, and available dates to
+   OpenRouter. Empty evidence produces an “Evidence unavailable” report
+   without model invocation. Model JSON is normalized and validated.
+6. Report identity is set from the queue. Website and source URLs not found
+   exactly in the evidence are removed; source duplicates are removed.
+7. The graph appends the report and loops while the queue is nonempty.
+   Terminal status reports completion or zero discovered competitors.
+8. Streamlit stores the company alongside the reports so editing the input
+   cannot relabel an existing snapshot. A new run clears the old snapshot.
+   JSON download includes `company` and an array of serialized `reports`.
 
-The model is configured through `OPENROUTER_MODEL`. `openrouter/free` is
-preferred over a pinned free provider because provider availability and rate
-limits can change. A free route can still be temporarily unavailable; that is
-an external capacity limitation, not a change to the application workflow.
+There are at most seven search calls and four model invocations for three
+competitors before provider retries. Empty evidence can reduce model calls.
+Competitors run sequentially; only the two searches within a competitor run
+concurrently. A legacy title-based `search_competitors` fallback remains for
+clients without evidence discovery; the application uses the evidence/LLM path.
 
-## Security and Operational Notes
+### State and output
 
-- `.env` is ignored by Git and must remain local. Never place API keys in source
-   files or project documentation.
-- The You.com key is sent only as the `X-API-Key` request header.
-- The OpenRouter key is sent only as a bearer token to the OpenRouter endpoint.
-- Search results and reports are held in Streamlit session state and are not
-   written to a database by this project.
-- Live runs require network access, valid API keys, and available provider
-   capacity. The smoke test does not require network access.
+`ResearchState` contains `company`, `competitor_queue`,
+`current_competitor`, `search_results`, `reports`, and `status`.
+Search results hold only the current competitor's evidence and are overwritten
+on the next pass. Reports accumulate within the run.
 
-## Failure Boundaries
+`CompetitorReport` contains name, website, summary, positioning, pricing,
+features, recent_news, strengths, watchouts, and sources. List/text normalization
+accepts common model shape variations. Pydantic checks structure, not factual
+truth. Evidence URL filtering prevents invented citations from being displayed
+but does not prove that each claim is supported by its cited source.
 
-| Boundary | Typical problem | User-visible behavior |
-| --- | --- | --- |
-| Input | Empty company name | Streamlit asks for a company name |
-| Credentials | Missing key | Streamlit asks for `.env` values |
-| You.com | 401/403 or network failure | Pipeline stops and shows the API error |
-| OpenRouter | 429 provider limit or no credits | Pipeline stops and shows the model/provider error |
-| Model output | Invalid or non-JSON response | Report parsing fails and Streamlit shows the exception |
-| Validation | Missing or malformed report fields | Pydantic rejects the report and Streamlit shows the exception |
+## Configuration and external boundaries
 
-## Running the Project
+Use Python 3.12 for the tested environment. See [README](README.md) for setup.
 
-```bash
-source .venv/bin/activate
-streamlit run app.py
-```
+| Variable | Behavior |
+| --- | --- |
+| `OPENROUTER_API_KEY` | Required model credential |
+| `YDC_API_KEY` | Required You.com Search API credential |
+| `OPENROUTER_MODEL` | Defaults to `openrouter/free` in code and example configuration |
+| `APP_URL` | Optional OpenRouter attribution; defaults to localhost |
+| `YDC_SEARCH_ENDPOINT` | Optional trusted endpoint override; receives the search API key |
 
-For a network-free check of the graph behavior:
+The adapter uses `POST https://ydc-index.io/v1/search` with an
+`X-API-Key` header. Parsing follows the documented separate web/news result
+sections, snippets, and `page_age` field.
+[You.com Search API reference](https://you.com/docs/api-reference/search/v1-search).
 
-```bash
-python test_pipeline.py
-```
+OpenRouter is called at `https://openrouter.ai/api/v1` via `ChatOpenAI`.
+The default model identifier is configuration, not a guarantee of provider
+availability. Search service charges and model limits depend on the account
+and selected model. The LLM client has an explicit 45-second request timeout
+and two SDK retries; these do not impose a total workflow deadline.
 
-## Suggested Future Improvements
+Company queries are sent to You.com; company names and retrieved evidence are
+sent to OpenRouter. Credentials stay in local environment configuration.
+There is no database, durable checkpoint, email delivery, or background job.
 
-1. Add bounded retries with short backoff for transient 429 and 5xx responses.
-2. Add a model fallback list when the free router has no available provider.
-3. Add structured logging with request IDs, without logging API keys or full
-   evidence payloads.
-4. Add tests for malformed model JSON, empty competitor discovery, and API
-   authorization failures.
+## Review findings and changes
+
+| Gap found | Resolution |
+| --- | --- |
+| News section discarded and descriptions used without snippets | Select the requested category; preserve snippets and publication dates |
+| News limited to one day | Use a month filter to cover less frequent company announcements |
+| Default paid model conflicted with free-router documentation | Align code default with `.env.example` |
+| Discovery forced exactly three names and could retain whitespace-padded target | Allow fewer names, skip empty evidence, normalize queue |
+| Model could change report name or invent citations | Enforce queue identity and exact evidence-URL membership |
+| Untrusted report text interpolated into HTML | Escape names, summaries, positioning, and source text |
+| Input edits relabelled old reports; failed reruns left old output | Store snapshot company and clear snapshot when starting a run |
+| JSON output not exportable | Add JSON download |
+| Final status remained “Researched …” | Set completion status after final analysis |
+| Smoke script omitted an existing test; CI ran only secret scan | Discover every test and add Python test CI |
+| Diagram had overlapping components and unsupported retry claims | Replace diagram and document actual failure behavior |
+
+## Failure behavior and remaining gaps
+
+- Blank input fails before API work. Empty discovery completes with zero cards.
+- Search uses a 12-second request timeout and no application retry. A 401 or
+  403 has a targeted message. Other HTTP/network failures stop the run.
+- LLM SDK retries selected transient failures. Invalid model JSON or schema
+  errors stop the run; no automatic model-output repair or provider fallback
+  is implemented.
+- A failure in either search or any competitor aborts the run. Earlier reports
+  from that run are not recovered or shown. Partial-result recovery and
+  category-level failure handling remain future work.
+- The UI shows run-level progress, not streamed node events.
+- Search snippets are untrusted. Prompts instruct the model to treat them as
+  data; stronger claim-level verification and prompt-injection evaluation
+  remain open.
+- Dependencies have minimum versions rather than a reproducible lockfile.
+  CI tests Python 3.12; other Python/dependency combinations are not certified.
+- No durable evidence archive, observation timestamp, request-ID logging, or
+  full workflow deadline exists. These matter for production auditability.
+- The credential scanner checks known patterns in current files; it does not
+  audit Git history or detect every possible secret format.
+
+## Validation
+
+Run `python -m unittest discover -v` (or `python test_pipeline.py`) and
+`python scripts/check_secrets.py`. Regression tests use mocked external clients
+and Streamlit AppTest; they require no API credentials or live provider calls.
+The review validated the offline workflow, not live account access, model
+quality, provider availability, or a deployed application.

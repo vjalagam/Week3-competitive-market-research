@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import re
+from urllib.parse import urlsplit
 from typing import Any
 
 import requests
@@ -19,7 +20,7 @@ class YouComClient:
         self.timeout = timeout
         self.endpoint = endpoint or self.endpoint
 
-    def search(self, query: str, *, freshness: str | None = None) -> list[SearchResult]:
+    def search(self, query: str, *, freshness: str | None = None, category: str = "web") -> list[SearchResult]:
         payload: dict[str, str] = {"query": query}
         if freshness:
             payload["freshness"] = freshness
@@ -46,7 +47,7 @@ class YouComClient:
                 response=response,
             )
         response.raise_for_status()
-        return self._parse_results(response.json())
+        return self._parse_results(response.json(), category=category)
 
     def search_competitors(self, company: str) -> list[str]:
         results = self.search_competitor_evidence(company)
@@ -94,35 +95,52 @@ class YouComClient:
         }
         with ThreadPoolExecutor(max_workers=2) as executor:
             futures = {
-                kind: executor.submit(self.search, query, freshness="day" if kind == "news" else None)
+                kind: executor.submit(self.search, query, freshness="month" if kind == "news" else None, category=kind)
                 for kind, query in queries.items()
             }
             return {kind: future.result() for kind, future in futures.items()}
 
     @staticmethod
-    def _parse_results(payload: dict[str, Any]) -> list[SearchResult]:
-        raw_results: Any = payload.get("results", payload.get("web", []))
+    def _parse_results(payload: dict[str, Any], category: str = "web") -> list[SearchResult]:
+        if not isinstance(payload, dict):
+            raise ValueError("You.com returned an invalid search response")
+        raw_results: Any = payload.get("results", payload)
         if isinstance(raw_results, dict):
-            raw_results = raw_results.get(
-                "web", raw_results.get("results", raw_results.get("items", []))
-            )
+            raw_results = raw_results.get(category, raw_results.get("items", []))
         if isinstance(raw_results, dict):
             raw_results = raw_results.get("results", raw_results.get("items", []))
+        if not isinstance(raw_results, list):
+            raise ValueError("You.com returned an invalid result list")
         parsed: list[SearchResult] = []
-        for item in raw_results or []:
+        seen: set[str] = set()
+        for item in raw_results:
             if not isinstance(item, dict):
                 continue
-            url = str(item.get("url", item.get("link", "")))
-            title = str(item.get("title", "Untitled result"))
-            if not url:
+            url = item.get("url") or item.get("link")
+            if not isinstance(url, str):
                 continue
-            parsed.append(
-                SearchResult(
-                    title=title,
-                    url=url,
-                    snippet=str(item.get("description", item.get("snippet", ""))),
-                    source=str(item.get("source", "")),
-                    published_date=item.get("published_date", item.get("date")),
-                )
-            )
+            try:
+                parts = urlsplit(url)
+                if parts.scheme not in {"http", "https"} or not parts.hostname:
+                    continue
+            except ValueError:
+                continue
+            if url in seen:
+                continue
+            seen.add(url)
+            snippets = item.get("snippets") or []
+            if isinstance(snippets, str):
+                snippets = [snippets]
+            if not isinstance(snippets, list):
+                snippets = []
+            text = [item.get("description") or item.get("snippet") or "", *snippets]
+            snippet = " ".join(dict.fromkeys(part for part in text if isinstance(part, str) and part))
+            date = item.get("published_date") or item.get("page_age") or item.get("date")
+            parsed.append(SearchResult(
+                title=str(item.get("title") or "Untitled result"),
+                url=url,
+                snippet=snippet[:6000],
+                source=str(item.get("source") or ""),
+                published_date=str(date) if date is not None else None,
+            ))
         return parsed[:8]

@@ -3,7 +3,7 @@ from __future__ import annotations
 from langgraph.graph import END, START, StateGraph
 
 from analyst import CompetitorAnalyst
-from models import CompetitorReport, ResearchState
+from models import ResearchState
 from youcom_client import YouComClient
 
 
@@ -29,6 +29,8 @@ class CompetitiveResearchPipeline:
         return workflow.compile()
 
     def run(self, company: str) -> ResearchState:
+        if not company.strip():
+            raise ValueError("Enter a company name first.")
         return self.graph.invoke(
             {
                 "company": company.strip(),
@@ -36,7 +38,6 @@ class CompetitiveResearchPipeline:
                 "reports": [],
                 "search_results": {},
                 "status": "starting",
-                "error": None,
             }
         )
 
@@ -49,8 +50,17 @@ class CompetitiveResearchPipeline:
             competitors = self.analyst.discover_competitors(company, evidence)
         else:
             competitors = self.search_client.search_competitors(company)
+        names = []
+        seen = {company.casefold()}
+        for candidate in competitors:
+            if isinstance(candidate, str) and candidate.strip():
+                name = candidate.strip()
+                if name.casefold() not in seen:
+                    seen.add(name.casefold())
+                    names.append(name)
+        competitors = names[:3]
         return {
-            "competitor_queue": competitors[:3],
+            "competitor_queue": competitors,
             "reports": [],
             "status": f"Found {len(competitors[:3])} competitors",
         }
@@ -73,7 +83,12 @@ class CompetitiveResearchPipeline:
         report = self.analyst.analyze(
             state["company"], competitor, state.get("search_results", {})
         )
-        return {"reports": [*state.get("reports", []), report]}
+        reports = [*state.get("reports", []), report]
+        return {
+            "reports": reports,
+            "status": f"Research complete: {len(reports)} reports"
+            if not state.get("competitor_queue") else f"Analyzed {competitor}",
+        }
 
     @staticmethod
     def _queue_router(state: ResearchState) -> str:

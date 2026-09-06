@@ -84,4 +84,3 @@ class ResearchState(TypedDict, total=False):
     search_results: dict[str, list[SearchResult]]
     reports: list[CompetitorReport]
     status: str
-    error: Optional[str]

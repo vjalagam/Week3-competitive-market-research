@@ -37,10 +37,10 @@ def test_pipeline_stops_when_no_competitors_are_found():
 
 
 def test_analyst_fills_missing_report_name_from_competitor():
-    content = '{"company": "Figma", "summary": "A competitor summary"}'
-    data = json.loads(CompetitorAnalyst._extract_json(content))
-    data.setdefault("name", data.get("competitor", "Figma"))
-    report = CompetitorReport.model_validate(data)
+    analyst = make_analyst('{"summary": "A competitor summary"}')
+    report = analyst.analyze("Acme", "Figma", {
+        "web": [SearchResult(title="Figma", url="https://example.com")]
+    })
     assert report.name == "Figma"
 
 
@@ -80,10 +80,139 @@ def test_report_normalizes_structured_positioning():
     )
 
 
+# Standard-library discovery runs every test, including the original smoke checks.
+import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+
+
+def make_analyst(content):
+    analyst = CompetitorAnalyst("test-placeholder", "test-model")
+    analyst.llm = Mock()
+    analyst.llm.invoke.return_value = SimpleNamespace(content=content)
+    return analyst
+
+
+def test_discovery_trims_deduplicates_and_excludes_target():
+    analyst = make_analyst('[" Acme ", "Alpha", " alpha ", "Beta", "Gamma", "Delta"]')
+    evidence = [SearchResult(title="Alternatives", url="https://example.com")]
+    assert analyst.discover_competitors(" Acme ", evidence) == ["Alpha", "Beta", "Gamma"]
+
+
+def test_empty_evidence_skips_model():
+    analyst = make_analyst("invalid")
+    assert analyst.discover_competitors("Acme", []) == []
+    report = analyst.analyze("Acme", "Alpha", {"web": [], "news": []})
+    assert report.summary == "Evidence unavailable"
+    analyst.llm.invoke.assert_not_called()
+
+
+def test_analyze_fixes_identity_and_filters_unsupported_urls():
+    analyst = make_analyst(json.dumps({
+        "name": "Wrong", "website": "https://invented.example",
+        "sources": ["https://example.com", "https://invented.example", "https://example.com"]
+    }))
+    report = analyst.analyze("Acme", "Alpha", {
+        "web": [SearchResult(title="Alpha", url="https://example.com")]
+    })
+    assert report.name == "Alpha"
+    assert report.website == ""
+    assert report.sources == ["https://example.com"]
+
+
+def test_malformed_model_output_fails():
+    analyst = make_analyst("not JSON")
+    with unittest.TestCase().assertRaises(ValueError):
+        analyst.analyze("Acme", "Alpha", {
+            "web": [SearchResult(title="Alpha", url="https://example.com")]
+        })
+
+
+def test_blank_input_rejected_before_search():
+    search = Mock()
+    with unittest.TestCase().assertRaises(ValueError):
+        CompetitiveResearchPipeline(search, FakeAnalyst()).run(" ")
+    search.search_competitor_evidence.assert_not_called()
+
+
+def test_production_discovery_path_and_final_status():
+    search = Mock()
+    search.search_competitor_evidence.return_value = []
+    search.parallel_research.return_value = {"web": [], "news": []}
+    analyst = Mock()
+    analyst.discover_competitors.return_value = [" Acme ", "Alpha", " alpha ", "Beta"]
+    analyst.analyze.side_effect = lambda company, name, evidence: CompetitorReport(name=name)
+    result = CompetitiveResearchPipeline(search, analyst).run(" Acme ")
+    assert [r.name for r in result["reports"]] == ["Alpha", "Beta"]
+    assert result["status"] == "Research complete: 2 reports"
+    search.search_competitors.assert_not_called()
+
+
+def test_search_parser_preserves_news_snippets_dates_and_web_separation():
+    payload = {"results": {
+        "web": [{"title": "Product", "url": "https://example.com/product"}],
+        "news": [{"title": "Launch", "url": "https://example.com/news",
+                  "description": "Summary", "snippets": ["Details"], "page_age": "2026-09-01"}],
+    }}
+    news = YouComClient._parse_results(payload, "news")
+    assert len(news) == 1
+    assert news[0].snippet == "Summary Details"
+    assert news[0].published_date == "2026-09-01"
+    assert YouComClient._parse_results(payload)[0].title == "Product"
+    assert YouComClient._parse_results({"results": {"web": []}}, "news") == []
+
+
+def test_search_parser_skips_bad_urls_and_duplicates():
+    results = YouComClient._parse_results({"web": [
+        {"url": None}, {"url": "javascript:alert(1)"}, {"url": "https://"},
+        {"url": "https://example.com"}, {"url": "https://example.com"}
+    ]})
+    assert len(results) == 1
+
+
+def test_search_auth_errors_and_request_contract():
+    for code in (401, 403):
+        response = Mock(status_code=code)
+        with patch("youcom_client.requests.post", return_value=response) as post:
+            with unittest.TestCase().assertRaisesRegex(Exception, str(code)):
+                YouComClient("placeholder").search("Acme")
+            assert post.call_args.kwargs["json"] == {"query": "Acme"}
+            assert post.call_args.kwargs["timeout"] == 12
+
+
+def test_parallel_research_selects_news_section():
+    client = YouComClient("placeholder")
+    client.search = Mock(return_value=[])
+    assert client.parallel_research("Alpha") == {"web": [], "news": []}
+    kwargs = [call.kwargs for call in client.search.call_args_list]
+    assert {"category": "news", "freshness": "month"} in kwargs
+    assert {"category": "web", "freshness": None} in kwargs
+
+
+def test_ui_keeps_snapshot_identity_and_escapes_model_html():
+    from streamlit.testing.v1 import AppTest
+    app = AppTest.from_file("app.py")
+    app.session_state["reports"] = [CompetitorReport(name="<b>Alpha</b>", summary="<img src=x>")]
+    app.session_state["report_company"] = "Acme"
+    app.run()
+    app.text_input[0].set_value("Different company").run()
+    assert not app.exception
+    markup = "\n".join(element.value for element in app.markdown)
+    assert "Competitive snapshot for Acme" in markup
+    assert "&lt;b&gt;Alpha&lt;/b&gt;" in markup
+    assert "<img src=x>" not in markup
+    app.text_input[0].set_value("")
+    app.button[0].click().run()
+    assert "reports" not in app.session_state
+
+
+def load_tests(loader, tests, pattern):
+    return unittest.TestSuite(
+        unittest.FunctionTestCase(function)
+        for name, function in globals().items()
+        if name.startswith("test_") and callable(function)
+    )
+
+
 if __name__ == "__main__":
-    test_pipeline_processes_three_competitors_and_stops()
-    test_pipeline_stops_when_no_competitors_are_found()
-    test_analyst_fills_missing_report_name_from_competitor()
-    test_report_normalizes_structured_llm_fields()
-    test_report_normalizes_structured_positioning()
-    print("pipeline smoke test passed")
+    unittest.main()
