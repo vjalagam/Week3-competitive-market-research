@@ -42,7 +42,9 @@ tool agent, or academic search in the current implementation. The original
 concept diagram is reconciled with the code in the architecture document.
 
 Reports are held in the current session. New runs clear the previous snapshot.
-Malformed model output is regenerated once using the original evidence. If
+Malformed model output and all-unavailable analyses with nonempty evidence are
+regenerated once using the original evidence. Common report wrappers are
+normalized, and homepages on retrieved page origins are preserved. If
 the second response is invalid, the UI suggests retrying or changing
 `OPENROUTER_MODEL`. Provider failures stop the run; partial output is not recovered.
 Empty evidence is shown as unavailable. Source URLs must come from retrieved

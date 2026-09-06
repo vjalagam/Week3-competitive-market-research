@@ -272,6 +272,64 @@ def test_provider_errors_are_not_retried_as_json_errors():
         ])
     assert analyst.llm.invoke.call_count == 1
 
+
+def test_analyst_preserves_homepage_supported_by_retrieved_subpage():
+    analyst = make_analyst('{"website":"https://alpha.example/","summary":"Design tools"}')
+    report = analyst.analyze("Acme", "Alpha", {
+        "web": [SearchResult(title="Alpha pricing", url="https://alpha.example/pricing")]
+    })
+    assert report.website == "https://alpha.example/"
+    assert not analyst._website_supported("https://alpha.example/invented", {"https://alpha.example/pricing"})
+    assert not analyst._website_supported("https://invented.example/", {"https://alpha.example/pricing"})
+
+
+def test_analyst_unwraps_report_instead_of_returning_empty_defaults():
+    for wrapper in ("report", "competitor_report", "analysis"):
+        analyst = make_analyst(json.dumps({
+            wrapper: {"summary": "Design platform", "features": ["Collaboration"]}
+        }))
+        report = analyst.analyze("Acme", "Alpha", {
+            "web": [SearchResult(title="Alpha", url="https://example.com")]
+        })
+        assert report.summary == "Design platform"
+        assert report.features == ["Collaboration"]
+
+
+def test_analyst_retries_unrecognized_envelope_instead_of_empty_report():
+    analyst = make_analyst("")
+    analyst.llm.invoke.side_effect = [
+        SimpleNamespace(content='{"unexpected": {"summary": "Hidden"}}'),
+        SimpleNamespace(content='{"summary": "Recovered evidence"}'),
+    ]
+    report = analyst.analyze("Acme", "Alpha", {
+        "web": [SearchResult(title="Alpha", url="https://example.com")]
+    })
+    assert report.summary == "Recovered evidence"
+    assert analyst.llm.invoke.call_count == 2
+
+
+def test_analyst_retries_all_unavailable_despite_real_evidence():
+    analyst = make_analyst("")
+    analyst.llm.invoke.side_effect = [
+        SimpleNamespace(content='{"summary":"Evidence unavailable","features":[]}'),
+        SimpleNamespace(content='{"summary":"Collaborative design","features":["Team editing"]}'),
+    ]
+    report = analyst.analyze("Acme", "Alpha", {
+        "web": [SearchResult(title="Alpha", url="https://example.com",
+                             snippet="Alpha offers collaborative design with team editing.")]
+    })
+    assert report.features == ["Team editing"]
+    assert analyst.llm.invoke.call_count == 2
+
+
+def test_analyst_does_not_present_repeated_empty_analysis_as_success():
+    analyst = make_analyst('{"summary":"Evidence unavailable","features":[]}')
+    with unittest.TestCase().assertRaises(ModelOutputError):
+        analyst.analyze("Acme", "Alpha", {
+            "web": [SearchResult(title="Alpha", url="https://example.com", snippet="Team editing")]
+        })
+    assert analyst.llm.invoke.call_count == 2
+
 def load_tests(loader, tests, pattern):
     return unittest.TestSuite(
         unittest.FunctionTestCase(function)

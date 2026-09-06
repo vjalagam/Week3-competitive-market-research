@@ -73,8 +73,8 @@ search, or an agentic tool loop would be a separate feature change.
 5. Analysis sends category-labelled evidence, URLs, and available dates to
    OpenRouter. Empty evidence produces an “Evidence unavailable” report
    without model invocation. Model JSON is normalized and validated.
-6. Report identity is set from the queue. Website and source URLs not found
-   exactly in the evidence are removed; source duplicates are removed.
+6. Report identity is set from the queue. Source URLs absent from the evidence are removed, as are duplicate sources.
+   A homepage is also accepted when a subpage on its exact origin was retrieved.
 7. The graph appends the report and loops while the queue is nonempty.
    Terminal status reports completion or zero discovered competitors.
 8. Streamlit stores the company alongside the reports so editing the input
@@ -136,7 +136,7 @@ There is no database, durable checkpoint, email delivery, or background job.
 | News limited to one day | Use a month filter to cover less frequent company announcements |
 | Default paid model conflicted with free-router documentation | Align code default with `.env.example` |
 | Discovery forced exactly three names and could retain whitespace-padded target | Allow fewer names, skip empty evidence, normalize queue |
-| Model could change report name or invent citations | Enforce queue identity and exact evidence-URL membership |
+| Model could change report name or invent citations | Enforce queue identity; verify citations and homepage origins |
 | Untrusted report text interpolated into HTML | Escape names, summaries, positioning, and source text |
 | Input edits relabelled old reports; failed reruns left old output | Store snapshot company and clear snapshot when starting a run |
 | JSON output not exportable | Add JSON download |
@@ -151,7 +151,9 @@ There is no database, durable checkpoint, email delivery, or background job.
   403 has a targeted message. Other HTTP/network failures stop the run.
 - LLM SDK retries selected transient failures. Discovery and analysis each
   regenerate once from the original evidence if output is empty, malformed,
-  or fails validation. Text-block responses and fenced JSON are supported.
+  or fails validation. Text blocks, fenced JSON, and common report wrappers
+  are supported. Unrecognized wrappers and all-unavailable analyses with nonempty
+  evidence are retried instead of being presented as successful empty reports.
   A second invalid response stops the run with an actionable model-configuration
   message instead of a raw parsing traceback. No provider fallback is implemented.
 - A failure in either search or any competitor aborts the run. Earlier reports
