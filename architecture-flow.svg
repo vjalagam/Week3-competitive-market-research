@@ -1,42 +1,71 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
-<title id="title">Market Signal implemented architecture</title>
-<desc id="desc">Streamlit starts discovery, then a queue loops through researcher and analyst. You.com supplies web and news evidence; OpenRouter extracts names and reports. An empty queue ends with cards and JSON download.</desc>
-<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#52645a"/></marker></defs>
-<rect width="1200" height="760" fill="#f6f7f1"/>
-<g fill="none" stroke="#52645a" stroke-width="2.5" marker-end="url(#arrow)">
-<path d="M600 125 V170"/>
-<path d="M600 255 V305"/>
-<path d="M600 370 V420"/>
-<path d="M600 505 V565"/>
-<path d="M450 650 V695 H350 V338 H450"/>
-<path d="M750 338 H880"/>
-<path d="M390 460 H310"/>
-<path d="M880 605 H810"/>
-<path d="M1170 605 H1185 V213 H810"/>
-<path d="M170 420 V213 H390"/>
-</g>
-<rect x="390" y="60" width="420" height="65" rx="12" fill="white" stroke="#19231d" stroke-width="2"/>
-<text x="600.0" y="88" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#19231d">Streamlit UI</text>
-<text x="600.0" y="112" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#52645a">Company input and credentials</text>
-<rect x="390" y="170" width="420" height="85" rx="12" fill="white" stroke="#175bc4" stroke-width="2"/>
-<text x="600.0" y="198" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#175bc4">Discovery</text>
-<text x="600.0" y="222" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#52645a">You.com evidence + OpenRouter names</text>
-<rect x="450" y="305" width="300" height="65" rx="12" fill="white" stroke="#175bc4" stroke-width="2"/>
-<text x="600.0" y="333" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#175bc4">Queue router</text>
-<text x="600.0" y="357" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#52645a">Competitors remaining?</text>
-<rect x="390" y="420" width="420" height="85" rx="12" fill="white" stroke="#175bc4" stroke-width="2"/>
-<text x="600.0" y="448" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#175bc4">Researcher</text>
-<text x="600.0" y="472" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#52645a">Pop one competitor; parallel searches</text>
-<rect x="390" y="565" width="420" height="85" rx="12" fill="white" stroke="#175bc4" stroke-width="2"/>
-<text x="600.0" y="593" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#175bc4">Analyst</text>
-<text x="600.0" y="617" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#52645a">OpenRouter JSON + Pydantic validation</text>
-<rect x="30" y="420" width="280" height="100" rx="12" fill="white" stroke="#2a7f45" stroke-width="2"/>
-<text x="170.0" y="448" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#2a7f45">You.com Search API</text>
-<text x="170.0" y="472" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#52645a">web + news (month filter)</text>
-<rect x="880" y="565" width="290" height="85" rx="12" fill="white" stroke="#2a7f45" stroke-width="2"/>
-<text x="1025.0" y="593" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#2a7f45">OpenRouter</text>
-<text x="1025.0" y="617" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#52645a">Name extraction and reports</text>
-<rect x="880" y="305" width="290" height="85" rx="12" fill="white" stroke="#b97500" stroke-width="2"/>
-<text x="1025.0" y="333" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#b97500">END → Snapshot</text>
-<text x="1025.0" y="357" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#52645a">Report cards + JSON download</text>
-<g font-family="Arial, sans-serif" font-size="16" fill="#52645a"><text x="615" y="399">yes</text><text x="830" y="327">no</text><text x="370" y="722">Append report and check queue</text><text x="30" y="34" font-size="23" fill="#19231d">Market Signal · implemented workflow</text></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1220" viewBox="0 0 1000 1220" role="img" aria-labelledby="title desc">
+<title id="title">Market Signal research architecture</title>
+<desc id="desc">Streamlit starts discovery. A LangGraph queue routes each competitor through research and analysis. Discovery uses You.com and OpenRouter, research runs web and news calls in parallel, and analysis validates OpenRouter JSON. Analysis loops to the queue. An empty queue ends with report cards and JSON download.</desc>
+<defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8 Z" fill="#53647c"/></marker></defs>
+<rect width="1000" height="1220" fill="#ffffff"/>
+<text x="40" y="48" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#315ad8" text-anchor="start">MARKET SIGNAL</text>
+<text x="40" y="85" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#13233c" text-anchor="start">Competitive research workflow</text>
+<rect x="90" y="118" width="460" height="116" rx="16" fill="#f3f6ff" stroke="#d6dfec" stroke-width="2"/>
+<rect x="108" y="136" width="38" height="34" rx="9" fill="#315ad8" stroke="#315ad8" stroke-width="2"/>
+<text x="127" y="161" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="white" text-anchor="middle">1</text>
+<text x="162" y="162" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#13233c" text-anchor="start">Streamlit input</text>
+<text x="114" y="196" font-family="Arial, sans-serif" font-size="21" font-weight="400" fill="#53647c" text-anchor="start">Company name and API key checks</text>
+<rect x="35" y="260" width="920" height="723" rx="22" fill="#f8faff" stroke="#d6dfec" stroke-width="2"/>
+<text x="60" y="297" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#315ad8" text-anchor="start">LANGGRAPH WORKFLOW</text>
+<text x="640" y="297" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#087c72" text-anchor="start">EXTERNAL SERVICES</text>
+<rect x="90" y="325" width="460" height="116" rx="16" fill="#f3f6ff" stroke="#d6dfec" stroke-width="2"/>
+<rect x="108" y="343" width="38" height="34" rx="9" fill="#315ad8" stroke="#315ad8" stroke-width="2"/>
+<text x="127" y="368" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="white" text-anchor="middle">2</text>
+<text x="162" y="369" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#13233c" text-anchor="start">Discover competitors</text>
+<text x="114" y="403" font-family="Arial, sans-serif" font-size="21" font-weight="400" fill="#53647c" text-anchor="start">Extract up to three unique names</text>
+<rect x="640" y="325" width="280" height="116" rx="16" fill="#effbf8" stroke="#d6dfec" stroke-width="2"/>
+<rect x="658" y="343" width="38" height="34" rx="9" fill="#087c72" stroke="#087c72" stroke-width="2"/>
+<text x="677" y="368" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="white" text-anchor="middle">↗</text>
+<text x="712" y="369" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#13233c" text-anchor="start">Discovery APIs</text>
+<text x="664" y="403" font-family="Arial, sans-serif" font-size="21" font-weight="400" fill="#53647c" text-anchor="start">You.com evidence</text>
+<text x="664" y="429" font-family="Arial, sans-serif" font-size="21" font-weight="400" fill="#53647c" text-anchor="start">OpenRouter names</text>
+<path d="M320 475 L465 530 L320 585 L175 530 Z" fill="#eef2ff" stroke="#315ad8" stroke-width="2"/>
+<text x="320" y="524" font-family="Arial, sans-serif" font-size="23" font-weight="700" fill="#13233c" text-anchor="middle">Queue has</text>
+<text x="320" y="552" font-family="Arial, sans-serif" font-size="23" font-weight="700" fill="#13233c" text-anchor="middle">competitors?</text>
+<rect x="90" y="635" width="460" height="116" rx="16" fill="#f3f6ff" stroke="#d6dfec" stroke-width="2"/>
+<rect x="108" y="653" width="38" height="34" rx="9" fill="#315ad8" stroke="#315ad8" stroke-width="2"/>
+<text x="127" y="678" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="white" text-anchor="middle">3</text>
+<text x="162" y="679" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#13233c" text-anchor="start">Research one competitor</text>
+<text x="114" y="713" font-family="Arial, sans-serif" font-size="21" font-weight="400" fill="#53647c" text-anchor="start">Pop queue and collect evidence</text>
+<rect x="640" y="635" width="280" height="116" rx="16" fill="#effbf8" stroke="#d6dfec" stroke-width="2"/>
+<rect x="658" y="653" width="38" height="34" rx="9" fill="#087c72" stroke="#087c72" stroke-width="2"/>
+<text x="677" y="678" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="white" text-anchor="middle">↗</text>
+<text x="712" y="679" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#13233c" text-anchor="start">You.com Search</text>
+<text x="664" y="713" font-family="Arial, sans-serif" font-size="21" font-weight="400" fill="#53647c" text-anchor="start">Web + news in parallel</text>
+<text x="664" y="739" font-family="Arial, sans-serif" font-size="21" font-weight="400" fill="#53647c" text-anchor="start">Freshness: one month</text>
+<rect x="90" y="820" width="460" height="116" rx="16" fill="#f3f6ff" stroke="#d6dfec" stroke-width="2"/>
+<rect x="108" y="838" width="38" height="34" rx="9" fill="#315ad8" stroke="#315ad8" stroke-width="2"/>
+<text x="127" y="863" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="white" text-anchor="middle">4</text>
+<text x="162" y="864" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#13233c" text-anchor="start">Analyze and validate</text>
+<text x="114" y="898" font-family="Arial, sans-serif" font-size="21" font-weight="400" fill="#53647c" text-anchor="start">Validate JSON and filter sources</text>
+<text x="114" y="924" font-family="Arial, sans-serif" font-size="21" font-weight="400" fill="#53647c" text-anchor="start">Append report to the snapshot</text>
+<rect x="640" y="820" width="280" height="116" rx="16" fill="#effbf8" stroke="#d6dfec" stroke-width="2"/>
+<rect x="658" y="838" width="38" height="34" rx="9" fill="#087c72" stroke="#087c72" stroke-width="2"/>
+<text x="677" y="863" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="white" text-anchor="middle">↗</text>
+<text x="712" y="864" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#13233c" text-anchor="start">OpenRouter</text>
+<text x="664" y="898" font-family="Arial, sans-serif" font-size="21" font-weight="400" fill="#53647c" text-anchor="start">Selected model</text>
+<text x="664" y="924" font-family="Arial, sans-serif" font-size="21" font-weight="400" fill="#53647c" text-anchor="start">Evidence to report JSON</text>
+<rect x="270" y="1040" width="510" height="116" rx="16" fill="#fff8eb" stroke="#d6dfec" stroke-width="2"/>
+<rect x="288" y="1058" width="38" height="34" rx="9" fill="#ae710b" stroke="#ae710b" stroke-width="2"/>
+<text x="307" y="1083" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="white" text-anchor="middle">5</text>
+<text x="342" y="1084" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#13233c" text-anchor="start">Streamlit snapshot</text>
+<text x="294" y="1118" font-family="Arial, sans-serif" font-size="21" font-weight="400" fill="#53647c" text-anchor="start">Report cards and JSON download</text>
+<path d="M320 234 V325" fill="none" stroke="#53647c" stroke-width="2.5"  marker-end="url(#arrow)"/>
+<path d="M320 441 V475" fill="none" stroke="#53647c" stroke-width="2.5"  marker-end="url(#arrow)"/>
+<path d="M320 585 V635" fill="none" stroke="#53647c" stroke-width="2.5"  marker-end="url(#arrow)"/>
+<text x="335" y="618" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#315ad8" text-anchor="start">Yes</text>
+<path d="M320 751 V820" fill="none" stroke="#53647c" stroke-width="2.5"  marker-end="url(#arrow)"/>
+<path d="M175 936 V960 H60 V530 H175" fill="none" stroke="#53647c" stroke-width="2.5"  marker-end="url(#arrow)"/>
+<text x="95" y="795" font-family="Arial, sans-serif" font-size="19" font-weight="700" fill="#315ad8" text-anchor="start">Next competitor</text>
+<path d="M465 530 H970 V1098 H780" fill="none" stroke="#53647c" stroke-width="2.5"  marker-end="url(#arrow)"/>
+<text x="825" y="520" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#ae710b" text-anchor="start">No → END</text>
+<path d="M550 383 H640" fill="none" stroke="#53647c" stroke-width="2.5" stroke-dasharray="6 6" marker-end="url(#arrow)"/>
+<path d="M550 693 H640" fill="none" stroke="#53647c" stroke-width="2.5" stroke-dasharray="6 6" marker-end="url(#arrow)"/>
+<path d="M550 878 H640" fill="none" stroke="#53647c" stroke-width="2.5" stroke-dasharray="6 6" marker-end="url(#arrow)"/>
+<text x="500" y="1190" font-family="Arial, sans-serif" font-size="19" font-weight="400" fill="#53647c" text-anchor="middle">Solid arrows  Workflow     •     Dashed arrows  API calls</text>
+</svg>

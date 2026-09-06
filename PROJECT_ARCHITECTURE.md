@@ -2,6 +2,8 @@
 
 Reviewed against the implementation on 2026-09-06.
 
+[Download the Word version](PROJECT_ARCHITECTURE.docx).
+
 Market Signal is a Streamlit application that discovers up to three competitors,
 collects live search evidence, and produces validated research cards and a
 downloadable JSON snapshot. LangGraph controls a bounded, sequential competitor

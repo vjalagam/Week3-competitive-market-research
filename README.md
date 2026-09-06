@@ -6,6 +6,8 @@ with parallel web/news searches, and view or download structured reports.
 
 See [Project architecture and code review](PROJECT_ARCHITECTURE.md) for the
 runtime diagram, component contracts, resolved gaps, and remaining limitations.
+Download the [Word document](PROJECT_ARCHITECTURE.docx) or view the
+[modern architecture diagram](architecture-flow.svg) ([PNG](architecture-flow.png)).
 
 ## Run locally
 
