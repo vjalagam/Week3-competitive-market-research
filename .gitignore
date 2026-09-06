@@ -1,9 +1,12 @@
-.env
-.env.example
+.env*
+!.env.example
 .venv/
 __pycache__/
 .pytest_cache/
 .streamlit/
+.agents/
+.claude/
+.DS_Store
 # Byte-compiled / optimized / DLL files
 *.py[codz]
 *$py.class

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="920" viewBox="0 0 1400 920">
+  <rect width="1400" height="920" fill="#fffefa"/>
+  <g fill="none" stroke="#17243c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M420 73 Q700 58 980 73"/><path d="M420 88 Q700 73 980 88" stroke-width="2"/>
+    <rect x="535" y="112" width="330" height="78" rx="14" fill="#fffefa"/>
+    <rect x="215" y="235" width="970" height="92" rx="16" fill="#edf4ff" stroke="#175bc4"/>
+    <path d="M700 190 L700 235 M685 218 L700 235 L715 218"/>
+    <path d="M345 327 L345 382 L165 382 L165 426 M700 327 L700 426 M700 382 L1140 382 L1140 426"/>
+    <rect x="55" y="426" width="220" height="138" rx="16" fill="#f0f6ff" stroke="#175bc4"/>
+    <rect x="460" y="426" width="330" height="170" rx="16" fill="#f0f6ff" stroke="#175bc4"/>
+    <rect x="1065" y="426" width="255" height="138" rx="16" fill="#fff8e9" stroke="#e29413"/>
+    <rect x="460" y="618" width="330" height="64" rx="12" fill="#f0f6ff" stroke="#175bc4" stroke-dasharray="10 8"/>
+    <path d="M275 495 L460 495 M790 495 L940 495 M940 495 L940 755 L790 755" stroke="#2a7f45" stroke-dasharray="12 10"/>
+    <path d="M790 755 L810 740 L810 770" stroke="#2a7f45"/>
+    <rect x="940" y="426" width="300" height="118" rx="16" fill="#f0fff1" stroke="#2a7f45"/>
+    <rect x="985" y="570" width="210" height="78" rx="13" fill="#f0fff1" stroke="#2a7f45"/>
+    <path d="M1090 544 L1090 570 M1030 648 L1030 706 M1100 648 L1100 706 M1170 648 L1170 706" stroke="#2a7f45"/>
+    <rect x="970" y="706" width="115" height="60" rx="10" fill="#f0fff1" stroke="#2a7f45"/>
+    <rect x="1110" y="706" width="115" height="60" rx="10" fill="#f0fff1" stroke="#2a7f45"/>
+    <rect x="1090" y="618" width="270" height="78" rx="13" fill="#fff8e9" stroke="#e29413"/>
+    <path d="M1192 564 L1192 618 M1192 696 L1192 738 M165 564 L165 650 L460 650"/>
+    <path d="M460 650 L440 635 L440 665"/>
+  </g>
+  <g font-family="Marker Felt, Comic Sans MS, cursive" fill="#17243c">
+    <text x="700" y="55" text-anchor="middle" font-size="38" font-weight="bold">MARKET SIGNAL</text>
+    <text x="700" y="163" text-anchor="middle" font-size="28" font-weight="bold">STREAMLIT UI</text>
+    <text x="700" y="294" text-anchor="middle" font-size="30" font-weight="bold" fill="#175bc4">LANGGRAPH ORCHESTRATOR</text>
+    <text x="700" y="316" text-anchor="middle" font-size="17" fill="#385477">discover -&gt; researcher -&gt; analyst</text>
+    <text x="92" y="463" font-size="25" font-weight="bold" fill="#175bc4">DISCOVERY NODE</text>
+    <text x="92" y="498" font-size="19">Creates competitor</text><text x="92" y="526" font-size="19">queue from evidence</text>
+    <text x="492" y="465" font-size="25" font-weight="bold" fill="#175bc4">RESEARCHER NODE</text>
+    <text x="492" y="500" font-size="19">Uses search evidence</text><text x="492" y="528" font-size="19">for one competitor</text><text x="492" y="568" font-size="18" fill="#175bc4">calls You.com tools</text>
+    <text x="1088" y="464" font-size="25" font-weight="bold" fill="#e29413">ANALYST NODE</text>
+    <text x="1090" y="500" font-size="19">Creates structured</text><text x="1090" y="528" font-size="19">JSON report</text>
+    <text x="485" y="658" font-size="18" fill="#175bc4">queue router: loop until competitors complete</text>
+    <text x="970" y="464" font-size="25" font-weight="bold" fill="#2a7f45">YOU.COM TOOLS</text><text x="970" y="500" font-size="18" fill="#2a7f45">YouComClient</text>
+    <text x="1040" y="620" font-size="24" font-weight="bold" fill="#2a7f45">YOU.COM API</text><text x="1100" y="662" font-size="18" fill="#2a7f45">fresh evidence</text>
+    <text x="982" y="742" font-size="17" fill="#2a7f45">WEB SEARCH</text><text x="1121" y="742" font-size="17" fill="#2a7f45">NEWS SEARCH</text>
+    <text x="1115" y="650" font-size="17" fill="#e29413">{ }</text><text x="1134" y="650" font-size="23" font-weight="bold" fill="#e29413">JSON REPORT</text>
+    <text x="1064" y="783" font-size="24" font-weight="bold" fill="#e29413">STREAMLIT REPORT CARDS</text>
+    <text x="93" y="625" font-size="19" fill="#175bc4">queue router</text><text x="93" y="650" font-size="17">loops back to researcher</text><text x="93" y="675" font-size="17">until all competitors finish</text>
+    <text x="800" y="735" font-size="18" fill="#2a7f45">research evidence</text>
+    <text x="55" y="860" font-size="19" fill="#d23b2e">retry search when evidence is unavailable</text><text x="1060" y="860" font-size="19" fill="#d23b2e">retry or switch free provider on 429</text>
+  </g>
+</svg>
