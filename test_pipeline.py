@@ -390,6 +390,93 @@ def test_ui_displays_deadline_error_without_traceback():
             assert not app.exception
             assert any("120 seconds" in e.value for e in app.error)
 
+
+def test_analysis_requests_strict_schema_and_compatible_provider():
+    analyst = make_analyst('{"summary":"Design tools"}')
+    analyst.analyze("Acme", "Alpha", {"web": [SearchResult(title="Alpha",url="https://example.com")]})
+    options = analyst.llm.invoke.call_args.kwargs
+    schema = options["response_format"]["json_schema"]
+    assert schema["strict"] is True
+    assert schema["schema"]["additionalProperties"] is False
+    assert set(schema["schema"]["required"]) == set(CompetitorReport.model_fields)
+    assert options["extra_body"]["provider"]["require_parameters"] is True
+
+
+def test_discovery_accepts_schema_object():
+    analyst = make_analyst('{"competitors":["Alpha","Beta"]}')
+    assert analyst.discover_competitors("Acme", [SearchResult(title="Alternatives",url="https://example.com")]) == ["Alpha","Beta"]
+    assert analyst.llm.invoke.call_args.kwargs["response_format"]["json_schema"]["schema"]["required"] == ["competitors"]
+
+
+def test_truncated_json_is_not_accepted_even_when_parseable():
+    analyst = make_analyst("")
+    analyst.llm.invoke.side_effect = [
+        SimpleNamespace(content='{"summary":"Partial"}',response_metadata={"finish_reason":"length"}),
+        SimpleNamespace(content='{"summary":"Complete"}',response_metadata={"finish_reason":"stop"}),
+    ]
+    report = analyst.analyze("Acme", "Alpha", {"web":[SearchResult(title="Alpha",url="https://example.com")]})
+    assert report.summary == "Complete"
+    assert analyst.llm.invoke.call_count == 2
+
+
+def test_schema_compatibility_fallback_is_bounded():
+    class UnsupportedSchema(Exception):
+        status_code = 404
+    analyst = make_analyst("")
+    analyst.llm.invoke.side_effect = [
+        UnsupportedSchema(), SimpleNamespace(content='{"summary":"Design tools"}'),
+    ]
+    report = analyst.analyze("Acme", "Alpha", {"web":[SearchResult(title="Alpha",url="https://example.com")]})
+    assert report.summary == "Design tools"
+    calls = analyst.llm.invoke.call_args_list
+    assert calls[0].kwargs["response_format"]["type"] == "json_schema"
+    assert calls[1].kwargs["response_format"]["type"] == "json_object"
+    assert len(calls) == 2
+
+
+def test_rate_limit_does_not_trigger_format_fallback():
+    class RateLimit(Exception):
+        status_code = 429
+    analyst = make_analyst("")
+    analyst.llm.invoke.side_effect = RateLimit()
+    with unittest.TestCase().assertRaises(RateLimit):
+        analyst.discover_competitors("Acme", [SearchResult(title="Alternatives",url="https://example.com")])
+    assert analyst.llm.invoke.call_count == 1
+
+
+def test_format_fallback_is_reused_with_local_validation():
+    class UnsupportedSchema(Exception):
+        status_code = 404
+    analyst = make_analyst("")
+    analyst.llm.invoke.side_effect = [
+        UnsupportedSchema(), SimpleNamespace(content='{"summary":"Design tools"}'),
+        SimpleNamespace(content='{"summary":"Team tools"}'),
+    ]
+    evidence = {"web":[SearchResult(title="Alpha",url="https://example.com")]}
+    analyst.analyze("Acme", "Alpha", evidence)
+    report = analyst.analyze("Acme", "Beta", evidence)
+    assert report.summary == "Team tools"
+    assert analyst.llm.invoke.call_count == 3
+    options = analyst.llm.invoke.call_args.kwargs
+    assert options["response_format"]["type"] == "json_object"
+    assert options["extra_body"]["provider"]["require_parameters"] is False
+
+
+def test_sdk_truncation_retries_with_larger_output_budget():
+    from openai import LengthFinishReasonError
+    from openai.types.chat import ChatCompletion
+    completion = ChatCompletion(id="test",created=0,model="test",object="chat.completion",choices=[])
+    analyst = make_analyst("")
+    analyst.llm.invoke.side_effect = [
+        LengthFinishReasonError(completion=completion),
+        SimpleNamespace(content='{"summary":"Complete report"}'),
+    ]
+    report = analyst.analyze("Acme", "Alpha", {"web":[SearchResult(title="Alpha",url="https://example.com")]})
+    assert report.summary == "Complete report"
+    calls = analyst.llm.invoke.call_args_list
+    assert calls[0].kwargs["max_tokens"] == 4096
+    assert calls[1].kwargs["max_tokens"] == 8192
+
 def load_tests(loader, tests, pattern):
     return unittest.TestSuite(
         unittest.FunctionTestCase(function)

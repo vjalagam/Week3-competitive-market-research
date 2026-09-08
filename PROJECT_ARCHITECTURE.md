@@ -65,7 +65,7 @@ search, or an agentic tool loop would be a separate feature change.
    The worker constructs the search client and analyst and sends stage progress.
 2. Discovery queries You.com for competitor evidence. If evidence is empty,
    it returns no competitors without calling the model.
-3. OpenRouter extracts up to three company names. Names are trimmed,
+3. OpenRouter returns a schema-constrained object containing a competitors array. Names are trimmed,
    deduplicated case-insensitively, and filtered to exclude the target.
    The pipeline also enforces these queue invariants.
 4. Research pops one name and runs two requests in a two-worker thread pool:
@@ -76,6 +76,10 @@ search, or an agentic tool loop would be a separate feature change.
    OpenRouter. Empty evidence produces an “Evidence unavailable” report
    without model invocation. Model JSON is normalized and validated. Analysis
    receives up to four results per category, with 1,500 snippet characters each.
+   Requests try a strict JSON schema, then JSON-object mode on HTTP 400, 404,
+   or 422, within the same two-attempt budget. In fallback mode providers may
+   ignore the output-format option; local validation always applies. The worker
+   remembers the fallback mode for subsequent calls in the same run.
 6. Report identity is set from the queue. Source URLs absent from the evidence are removed, as are duplicate sources.
    A homepage is also accepted when a subpage on its exact origin was retrieved.
 7. The graph appends the report and loops while the queue is nonempty.
@@ -125,7 +129,8 @@ OpenRouter is called at `https://openrouter.ai/api/v1` via `ChatOpenAI`.
 The default model identifier is configuration, not a guarantee of provider
 availability. Search service charges and model limits depend on the account
 and selected model. The LLM client has a 20-second request timeout, no SDK
-retries, and a 1,800-token output limit. The UI worker has a separate 120-second
+retries, and a 4,096-token initial output limit. A truncation retry can use
+8,192 tokens within the existing deadline. The UI worker has a separate 120-second
 wall-clock deadline and is terminated on expiry, with up to two seconds for cleanup.
 
 Company queries are sent to You.com; company names and retrieved evidence are
@@ -161,7 +166,8 @@ macOS and Linux; Windows pipe polling is not supported.
   are supported. Unrecognized wrappers and all-unavailable analyses with nonempty
   evidence are retried instead of being presented as successful empty reports.
   A second invalid response stops the run with an actionable model-configuration
-  message instead of a raw parsing traceback. No provider fallback is implemented.
+  message instead of a raw parsing traceback. Truncated output is rejected even
+  if its JSON can be parsed. No application-level provider fallback is implemented.
 - A failure in either search or any competitor aborts the run. Earlier reports
   from that run are not recovered or shown. Partial-result recovery and
   category-level failure handling remain future work.

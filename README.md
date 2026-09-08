@@ -46,7 +46,10 @@ cleanup. Model requests have no automatic transport retries and use bounded
 evidence and output sizes. The process runner supports macOS and Linux.
 
 Reports are held in the current session. New runs clear the previous snapshot.
-Malformed model output and all-unavailable analyses with nonempty evidence are
+Model calls try strict JSON schemas, with one JSON-object-mode fallback on
+HTTP 400, 404, or 422. Fallback mode permits providers without format enforcement;
+local report validation remains required. The mode is reused within the run.
+Truncated responses are rejected. Malformed output and empty analyses with evidence are
 regenerated once using the original evidence. Common report wrappers are
 normalized, and homepages on retrieved page origins are preserved. If
 the second response is invalid, the UI suggests retrying or changing
