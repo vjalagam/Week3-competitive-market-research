@@ -8,7 +8,8 @@ from youcom_client import YouComClient
 
 
 class CompetitiveResearchPipeline:
-    def __init__(self, search_client: YouComClient, analyst: CompetitorAnalyst) -> None:
+    def __init__(self, search_client: YouComClient, analyst: CompetitorAnalyst, progress=None) -> None:
+        self.progress = progress or (lambda message: None)
         self.search_client = search_client
         self.analyst = analyst
         self.graph = self._build_graph()
@@ -43,6 +44,7 @@ class CompetitiveResearchPipeline:
 
     def _discover(self, state: ResearchState) -> dict:
         company = state["company"]
+        self.progress(f"Finding competitors for {company}…")
         if hasattr(self.search_client, "search_competitor_evidence") and hasattr(
             self.analyst, "discover_competitors"
         ):
@@ -70,6 +72,7 @@ class CompetitiveResearchPipeline:
         if not queue:
             return {"status": "No competitors found"}
         competitor = queue.pop(0)
+        self.progress(f"Searching web and news for {competitor}…")
         results = self.search_client.parallel_research(competitor)
         return {
             "competitor_queue": queue,
@@ -80,6 +83,7 @@ class CompetitiveResearchPipeline:
 
     def _analyst(self, state: ResearchState) -> dict:
         competitor = state["current_competitor"]
+        self.progress(f"Analyzing {competitor} ({len(state.get('reports', [])) + 1} of up to 3)…")
         report = self.analyst.analyze(
             state["company"], competitor, state.get("search_results", {})
         )

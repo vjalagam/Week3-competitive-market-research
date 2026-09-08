@@ -30,8 +30,9 @@ class CompetitorAnalyst:
             base_url="https://openrouter.ai/api/v1",
             model=model,
             temperature=0,
-            timeout=45,
-            max_retries=2,
+            timeout=20,
+            max_retries=0,
+            max_tokens=1800,
             default_headers={
                 "HTTP-Referer": app_url,
                 "X-Title": app_name,
@@ -53,7 +54,8 @@ class CompetitorAnalyst:
                     "Website and sources must use only exact URLs present in evidence. "
                     "Name, website, summary, and positioning must be strings. "
                     "Pricing, features, recent_news, strengths, watchouts, and sources "
-                    "must be arrays of strings. Return JSON only, without markdown.",
+                    "must be arrays of strings, at most three short findings per list. "
+                    "Keep the summary under 80 words. Return JSON only, without markdown.",
                 ),
                 ("human", "Company: {company}\nCompetitor: {competitor}\nEvidence:\n{evidence}"),
             ]
@@ -77,7 +79,7 @@ class CompetitorAnalyst:
         if not results:
             return []
         evidence = "\n".join(
-            f"- {item.title}: {item.snippet} ({item.url})" for item in results
+            f"- {item.title}: {item.snippet} ({item.url})" for item in results[:5]
         )
         values = self._invoke_validated(
             self.discovery_prompt.format_messages(company=company, evidence=evidence),
@@ -166,8 +168,8 @@ class CompetitorAnalyst:
         chunks: list[str] = []
         for category, items in results.items():
             chunks.append(f"[{category.upper()}]")
-            for item in items:
-                chunks.append(f"- {item.title}: {item.snippet} ({item.url}); date: {item.published_date or 'unknown'}")
+            for item in items[:4]:
+                chunks.append(f"- {item.title}: {item.snippet[:1500]} ({item.url}); date: {item.published_date or 'unknown'}")
         return "\n".join(chunks) or "No search evidence returned."
 
     def _invoke_validated(self, messages: list, parse: Callable[[str], T], stage: str) -> T:

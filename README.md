@@ -41,6 +41,10 @@ The researcher uses direct API calls. There is no Groq integration, ReAct
 tool agent, or academic search in the current implementation. The original
 concept diagram is reconciled with the code in the architecture document.
 
+Live runs show their current stage and stop after two minutes, plus brief worker
+cleanup. Model requests have no automatic transport retries and use bounded
+evidence and output sizes. The process runner supports macOS and Linux.
+
 Reports are held in the current session. New runs clear the previous snapshot.
 Malformed model output and all-unavailable analyses with nonempty evidence are
 regenerated once using the original evidence. Common report wrappers are

@@ -191,7 +191,7 @@ def test_parallel_research_selects_news_section():
 
 def test_ui_keeps_snapshot_identity_and_escapes_model_html():
     from streamlit.testing.v1 import AppTest
-    app = AppTest.from_file("app.py")
+    app = AppTest.from_file("app.py", default_timeout=10)
     app.session_state["reports"] = [CompetitorReport(name="<b>Alpha</b>", summary="<img src=x>")]
     app.session_state["report_company"] = "Acme"
     app.run()
@@ -329,6 +329,66 @@ def test_analyst_does_not_present_repeated_empty_analysis_as_success():
             "web": [SearchResult(title="Alpha", url="https://example.com", snippet="Team editing")]
         })
     assert analyst.llm.invoke.call_count == 2
+
+
+def test_worker_deadline_terminates_slow_provider():
+    import sys, time, subprocess
+    from research_runner import _run_worker, ResearchRunError
+    real_popen = subprocess.Popen
+    processes = []
+    def capture(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        processes.append(process)
+        return process
+    start = time.monotonic()
+    with patch("research_runner.subprocess.Popen", side_effect=capture):
+        with unittest.TestCase().assertRaisesRegex(ResearchRunError, "took too long"):
+            _run_worker({}, 0.3, command=[sys.executable, "-c", "import time; time.sleep(20)"])
+    assert time.monotonic() - start < 3
+    assert processes[0].poll() is not None
+
+
+def test_worker_progress_and_result_round_trip():
+    import sys
+    from research_runner import _run_worker
+    script = 'import json; print(json.dumps({"type":"progress","message":"Analyzing Alpha"}),flush=True); print(json.dumps({"type":"result","result":{"company":"Acme","reports":[{"name":"Alpha"}]}}),flush=True)'
+    progress = []
+    result = _run_worker({}, 5, progress.append, [sys.executable, "-c", script])
+    assert progress == ["Analyzing Alpha"]
+    assert result["reports"][0].name == "Alpha"
+
+
+def test_worker_failure_is_actionable():
+    import sys
+    from research_runner import _run_worker, ResearchRunError
+    with unittest.TestCase().assertRaisesRegex(ResearchRunError, "without a result"):
+        _run_worker({}, 5, command=[sys.executable, "-c", "pass"])
+
+
+def test_ui_uses_deadline_runner_and_displays_result():
+    from streamlit.testing.v1 import AppTest
+    def fake_run(*args, **kwargs):
+        kwargs["on_progress"]("Analyzing Alpha")
+        return {"company": "Acme", "reports": [CompetitorReport(name="Alpha", summary="Team design")]}
+    with patch.dict("os.environ", {"OPENROUTER_API_KEY": "test-placeholder", "YDC_API_KEY": "test-placeholder"}):
+        with patch("research_runner.run_research", side_effect=fake_run):
+            app = AppTest.from_file("app.py", default_timeout=10).run()
+            app.text_input[0].set_value("Acme")
+            app.button[0].click().run()
+            assert not app.exception
+            assert app.session_state["reports"][0].name == "Alpha"
+
+
+def test_ui_displays_deadline_error_without_traceback():
+    from streamlit.testing.v1 import AppTest
+    from research_runner import ResearchRunError
+    with patch.dict("os.environ", {"OPENROUTER_API_KEY": "test-placeholder", "YDC_API_KEY": "test-placeholder"}):
+        with patch("research_runner.run_research", side_effect=ResearchRunError("Research stopped after 120 seconds.")):
+            app = AppTest.from_file("app.py", default_timeout=10).run()
+            app.text_input[0].set_value("Acme")
+            app.button[0].click().run()
+            assert not app.exception
+            assert any("120 seconds" in e.value for e in app.error)
 
 def load_tests(loader, tests, pattern):
     return unittest.TestSuite(

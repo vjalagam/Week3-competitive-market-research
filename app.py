@@ -7,9 +7,8 @@ from html import escape
 import streamlit as st
 from dotenv import load_dotenv
 
-from analyst import CompetitorAnalyst, ModelOutputError
-from pipeline import CompetitiveResearchPipeline
-from youcom_client import YouComClient
+from analyst import ModelOutputError
+from research_runner import run_research, ResearchRunError
 
 load_dotenv()
 st.set_page_config(page_title="Market Signal", page_icon="◈", layout="wide")
@@ -89,22 +88,21 @@ if run:
     else:
         with st.status("Running live market research...", expanded=True) as status:
             try:
-                pipeline = CompetitiveResearchPipeline(
-                    YouComClient(you_key, endpoint=os.getenv("YDC_SEARCH_ENDPOINT")),
-                    CompetitorAnalyst(
-                        openrouter_key,
-                        os.getenv("OPENROUTER_MODEL", "openrouter/free"),
-                        os.getenv("APP_URL", "http://localhost:8501"),
-                    ),
+                st.caption("Research has a two-minute limit.")
+                result = run_research(
+                    company, you_key, openrouter_key,
+                    os.getenv("OPENROUTER_MODEL", "openrouter/free"),
+                    os.getenv("APP_URL", "http://localhost:8501"),
+                    os.getenv("YDC_SEARCH_ENDPOINT"),
+                    on_progress=lambda message: status.update(label=message),
                 )
-                result = pipeline.run(company)
                 status.update(label="Research complete", state="complete", expanded=False)
                 st.session_state["report_company"] = result["company"]
                 st.session_state["reports"] = result.get("reports", [])
                 st.session_state["research_status"] = result.get("status", "")
             except Exception as exc:
                 status.update(label="Research failed", state="error")
-                if isinstance(exc, ModelOutputError):
+                if isinstance(exc, (ModelOutputError, ResearchRunError)):
                     st.error(str(exc))
                 elif "402" in str(exc) and ("Insufficient Balance" in str(exc) or "credits" in str(exc).lower()):
                     st.error(

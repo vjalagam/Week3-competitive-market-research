@@ -49,6 +49,7 @@ search, or an agentic tool loop would be a separate feature change.
 | File | Responsibility |
 | --- | --- |
 | `app.py` | Load local configuration, validate input/keys, run workflow, store snapshot identity, escape card HTML, render and export reports |
+| `research_runner.py` | Isolate provider work, relay progress, stop the worker after 120 seconds |
 | `pipeline.py` | Compile discover → researcher → analyst graph, normalize the queue, stop at zero competitors |
 | `youcom_client.py` | POST Search API requests, select web/news sections, retain snippets and dates, filter URLs, execute two searches concurrently |
 | `analyst.py` | Extract names, request report JSON, normalize with Pydantic, restrict source URLs to supplied evidence |
@@ -60,7 +61,8 @@ search, or an agentic tool loop would be a separate feature change.
 ### Runtime sequence
 
 1. Streamlit clears the previous snapshot on a new run, validates a nonblank
-   company and API keys, and constructs the search client and analyst.
+   company and API keys, and starts an isolated worker with a 120-second deadline.
+   The worker constructs the search client and analyst and sends stage progress.
 2. Discovery queries You.com for competitor evidence. If evidence is empty,
    it returns no competitors without calling the model.
 3. OpenRouter extracts up to three company names. Names are trimmed,
@@ -72,7 +74,8 @@ search, or an agentic tool loop would be a separate feature change.
    unique HTTP(S) results and up to 6,000 snippet characters per result.
 5. Analysis sends category-labelled evidence, URLs, and available dates to
    OpenRouter. Empty evidence produces an “Evidence unavailable” report
-   without model invocation. Model JSON is normalized and validated.
+   without model invocation. Model JSON is normalized and validated. Analysis
+   receives up to four results per category, with 1,500 snippet characters each.
 6. Report identity is set from the queue. Source URLs absent from the evidence are removed, as are duplicate sources.
    A homepage is also accepted when a subpage on its exact origin was retrieved.
 7. The graph appends the report and loops while the queue is nonempty.
@@ -121,12 +124,15 @@ sections, snippets, and `page_age` field.
 OpenRouter is called at `https://openrouter.ai/api/v1` via `ChatOpenAI`.
 The default model identifier is configuration, not a guarantee of provider
 availability. Search service charges and model limits depend on the account
-and selected model. The LLM client has an explicit 45-second request timeout
-and two SDK retries; these do not impose a total workflow deadline.
+and selected model. The LLM client has a 20-second request timeout, no SDK
+retries, and a 1,800-token output limit. The UI worker has a separate 120-second
+wall-clock deadline and is terminated on expiry, with up to two seconds for cleanup.
 
 Company queries are sent to You.com; company names and retrieved evidence are
 sent to OpenRouter. Credentials stay in local environment configuration.
-There is no database, durable checkpoint, email delivery, or background job.
+There is no database, durable checkpoint, or email delivery. The temporary
+worker runs only while a research request is active. The runner is tested on
+macOS and Linux; Windows pipe polling is not supported.
 
 ## Review findings and changes
 
@@ -149,7 +155,7 @@ There is no database, durable checkpoint, email delivery, or background job.
 - Blank input fails before API work. Empty discovery completes with zero cards.
 - Search uses a 12-second request timeout and no application retry. A 401 or
   403 has a targeted message. Other HTTP/network failures stop the run.
-- LLM SDK retries selected transient failures. Discovery and analysis each
+- LLM transport failures stop immediately without SDK retries. Discovery and analysis each
   regenerate once from the original evidence if output is empty, malformed,
   or fails validation. Text blocks, fenced JSON, and common report wrappers
   are supported. Unrecognized wrappers and all-unavailable analyses with nonempty
@@ -159,14 +165,15 @@ There is no database, durable checkpoint, email delivery, or background job.
 - A failure in either search or any competitor aborts the run. Earlier reports
   from that run are not recovered or shown. Partial-result recovery and
   category-level failure handling remain future work.
-- The UI shows run-level progress, not streamed node events.
+- The UI shows discovery, search, and analysis progress as the worker runs.
 - Search snippets are untrusted. Prompts instruct the model to treat them as
   data; stronger claim-level verification and prompt-injection evaluation
   remain open.
 - Dependencies have minimum versions rather than a reproducible lockfile.
   CI tests Python 3.12; other Python/dependency combinations are not certified.
-- No durable evidence archive, observation timestamp, request-ID logging, or
-  full workflow deadline exists. These matter for production auditability.
+- No durable evidence archive, observation timestamp, or request-ID logging
+  exists. The two-minute deadline applies to the UI runner; direct pipeline
+  calls do not have that process-level deadline.
 - The credential scanner checks known patterns in current files; it does not
   audit Git history or detect every possible secret format.
 
