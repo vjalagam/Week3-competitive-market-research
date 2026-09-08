@@ -155,7 +155,7 @@ if reports:
             f'<span class="tag">{escape(report.positioning or report.summary or "Evidence unavailable")}</span></div>',
             unsafe_allow_html=True,
         )
-        with st.expander(f"Open {report.name} analysis"):
+        with st.expander(f"{report.name} analysis", expanded=True):
             analysis_rows = [
                 {"Category": "Website", "Findings": report.website or "Evidence unavailable"},
                 {"Category": "Positioning", "Findings": report.positioning or report.summary or "Evidence unavailable"},
