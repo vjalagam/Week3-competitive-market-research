@@ -62,12 +62,13 @@ search, or an agentic tool loop would be a separate feature change.
 
 1. Streamlit clears the previous snapshot on a new run, validates a nonblank
    company and API keys, and starts an isolated worker with a 120-second deadline.
-   The worker constructs the search client and analyst and sends stage progress.
+   The UI defaults to one competitor; users can choose up to three. The worker
+   constructs the search client and analyst and sends stage progress.
 2. Discovery queries You.com for competitor evidence. If evidence is empty,
    it returns no competitors without calling the model.
 3. OpenRouter returns a schema-constrained object containing a competitors array. Names are trimmed,
    deduplicated case-insensitively, and filtered to exclude the target.
-   The pipeline also enforces these queue invariants.
+   The pipeline also enforces these queue invariants and the selected queue limit.
 4. Research pops one name and runs two requests in a two-worker thread pool:
    product/pricing research selects `results.web`; recent-news research selects
    `results.news` with `freshness=month`. Each category retains up to eight
@@ -86,7 +87,8 @@ search, or an agentic tool loop would be a separate feature change.
    Terminal status reports completion or zero discovered competitors.
 8. Streamlit stores the company alongside the reports so editing the input
    cannot relabel an existing snapshot. A new run clears the old snapshot.
-   JSON download includes `company` and an array of serialized `reports`.
+   Each completed report is relayed to the parent process immediately. JSON download
+   includes company, reports, requested competitor count, partial flag, and status.
 
 There are at most seven search calls and four initial model invocations for three
 competitors. Each model stage can regenerate once for invalid output, for up to
@@ -168,9 +170,10 @@ macOS and Linux; Windows pipe polling is not supported.
   A second invalid response stops the run with an actionable model-configuration
   message instead of a raw parsing traceback. Truncated output is rejected even
   if its JSON can be parsed. No application-level provider fallback is implemented.
-- A failure in either search or any competitor aborts the run. Earlier reports
-  from that run are not recovered or shown. Partial-result recovery and
-  category-level failure handling remain future work.
+- A search or model failure stops further work. The runner preserves completed
+  reports on failure or timeout and labels the result partial in the UI and
+  export. No completed reports means an error. Category-level recovery and
+  resuming unfinished competitors remain future work.
 - The UI shows discovery, search, and analysis progress as the worker runs.
 - Search snippets are untrusted. Prompts instruct the model to treat them as
   data; stronger claim-level verification and prompt-injection evaluation

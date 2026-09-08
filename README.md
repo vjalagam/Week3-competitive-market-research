@@ -31,7 +31,8 @@ API access. Optional settings are documented in `.env.example`.
 ## Workflow
 
 1. Discovery searches You.com and asks OpenRouter to extract competitor names.
-2. LangGraph processes a queue of up to three unique competitors.
+2. Choose one competitor for a shorter run, or two or three for broader coverage.
+   LangGraph processes the selected number of unique competitors sequentially.
 3. Each competitor gets concurrent web and news searches. News uses a month
    freshness filter and the API's news results.
 4. OpenRouter synthesizes supplied evidence into a Pydantic-validated report.
@@ -53,7 +54,10 @@ Truncated responses are rejected. Malformed output and empty analyses with evide
 regenerated once using the original evidence. Common report wrappers are
 normalized, and homepages on retrieved page origins are preserved. If
 the second response is invalid, the UI suggests retrying or changing
-`OPENROUTER_MODEL`. Provider failures stop the run; partial output is not recovered.
+`OPENROUTER_MODEL`. Provider failures stop further work. Completed reports are preserved and labeled
+as partial in the UI and JSON export, including on timeout. If no report has
+completed, the app shows the error. The UI defaults to one competitor to reduce
+provider calls; response time still depends on the provider.
 Empty evidence is shown as unavailable. Source URLs must come from retrieved
 evidence, but factual accuracy still requires reviewing the sources.
 

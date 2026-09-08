@@ -477,6 +477,63 @@ def test_sdk_truncation_retries_with_larger_output_budget():
     assert calls[0].kwargs["max_tokens"] == 4096
     assert calls[1].kwargs["max_tokens"] == 8192
 
+def test_pipeline_respects_scope_and_emits_completed_reports():
+    emitted = []
+    result = CompetitiveResearchPipeline(FakeSearchClient(), FakeAnalyst(),
+        max_competitors=1, on_report=emitted.append).run("Acme")
+    assert [r.name for r in result["reports"]] == ["Alpha"]
+    assert emitted == result["reports"]
+
+
+def test_worker_keeps_report_after_timeout_and_terminates_process():
+    import sys, time, subprocess
+    from research_runner import _run_worker
+    script = 'import json,time; print(json.dumps({"type":"report","report":{"name":"Alpha","summary":"Team tools"}}),flush=True); time.sleep(20)'
+    processes = []
+    real_popen = subprocess.Popen
+    def capture(*args, **kwargs):
+        p = real_popen(*args, **kwargs)
+        processes.append(p)
+        return p
+    with patch("research_runner.subprocess.Popen", side_effect=capture):
+        result = _run_worker({"company":"Acme","max_competitors":3}, 0.5,
+                             command=[sys.executable, "-c", script])
+    assert result["partial"] is True
+    assert result["requested_competitors"] == 3
+    assert result["reports"][0].name == "Alpha"
+    assert "took too long" in result["status"]
+    assert processes[0].poll() is not None
+
+
+def test_worker_keeps_completed_report_after_provider_error():
+    import sys
+    from research_runner import _run_worker
+    script = 'import json; print(json.dumps({"type":"report","report":{"name":"Alpha"}}),flush=True); print(json.dumps({"type":"error","message":"Provider unavailable"}),flush=True)'
+    result = _run_worker({"company":"Acme"}, 5, command=[sys.executable,"-c",script])
+    assert result["partial"] is True
+    assert result["status"] == "Provider unavailable"
+    assert len(result["reports"]) == 1
+
+
+def test_ui_preserves_partial_reports_and_scope():
+    from streamlit.testing.v1 import AppTest
+    def fake_run(*args, **kwargs):
+        assert kwargs["max_competitors"] == 2
+        return {"company":"Acme", "reports":[CompetitorReport(name="Alpha")],
+                "partial":True, "status":"Provider took too long", "requested_competitors":2}
+    with patch.dict("os.environ", {"OPENROUTER_API_KEY":"test-placeholder", "YDC_API_KEY":"test-placeholder"}):
+        with patch("research_runner.run_research", side_effect=fake_run):
+            app = AppTest.from_file("app.py", default_timeout=10).run()
+            assert app.selectbox[0].value == 1
+            app.selectbox[0].select(2)
+            app.text_input[0].set_value("Acme")
+            app.button[0].click().run()
+            assert not app.exception
+            assert app.session_state["reports"][0].name == "Alpha"
+            assert app.session_state["research_partial"] is True
+            assert any("Partial research" in w.value for w in app.warning)
+
+
 def load_tests(loader, tests, pattern):
     return unittest.TestSuite(
         unittest.FunctionTestCase(function)

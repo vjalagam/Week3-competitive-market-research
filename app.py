@@ -46,7 +46,9 @@ st.markdown(
 with st.sidebar:
     st.markdown("### Research controls")
     company = st.text_input("Company to investigate", placeholder="e.g. Figma")
-    run = st.button("Run research pipeline", type="primary", use_container_width=True)
+    max_competitors = st.selectbox("Competitors to research", [1, 2, 3],
+                                   help="One competitor needs fewer provider calls. Choose up to three for broader coverage.")
+    run = st.button("Run research pipeline", type="primary", width="stretch")
     st.caption("Fresh searches are run live. Reports are generated for this session only.")
     with st.expander("Complete pipeline architecture", expanded=True):
         st.markdown(
@@ -77,7 +79,7 @@ with st.sidebar:
         )
 
 if run:
-    for key in ("reports", "research_status", "report_company"):
+    for key in ("reports", "research_status", "report_company", "research_partial", "requested_competitors"):
         st.session_state.pop(key, None)
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
     you_key = os.getenv("YDC_API_KEY")
@@ -95,8 +97,13 @@ if run:
                     os.getenv("APP_URL", "http://localhost:8501"),
                     os.getenv("YDC_SEARCH_ENDPOINT"),
                     on_progress=lambda message: status.update(label=message),
+                    max_competitors=max_competitors,
                 )
-                status.update(label="Research complete", state="complete", expanded=False)
+                partial = result.get("partial", False)
+                status.update(label="Partial research saved" if partial else "Research complete",
+                              state="error" if partial else "complete", expanded=False)
+                st.session_state["research_partial"] = partial
+                st.session_state["requested_competitors"] = result.get("requested_competitors", max_competitors)
                 st.session_state["report_company"] = result["company"]
                 st.session_state["reports"] = result.get("reports", [])
                 st.session_state["research_status"] = result.get("status", "")
@@ -124,6 +131,9 @@ if run:
 
 reports = st.session_state.get("reports", [])
 if reports:
+    if st.session_state.get("research_partial"):
+        st.warning(f"Partial research: saved {len(reports)} completed report(s). "
+                   f"{st.session_state.get('research_status', '')}")
     st.markdown(f"### Competitive snapshot for {st.session_state.get('report_company', '')}")
     st.caption(f"{len(reports)} structured reports generated from live web and news searches.")
     st.download_button(
@@ -131,6 +141,9 @@ if reports:
         data=json.dumps({
             "company": st.session_state.get("report_company", ""),
             "reports": [report.model_dump() for report in reports],
+            "partial": st.session_state.get("research_partial", False),
+            "status": st.session_state.get("research_status", ""),
+            "requested_competitors": st.session_state.get("requested_competitors"),
         }, indent=2),
         file_name="competitive-research.json",
         mime="application/json",

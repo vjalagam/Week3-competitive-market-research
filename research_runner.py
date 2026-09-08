@@ -15,17 +15,27 @@ class ResearchRunError(RuntimeError):
 
 
 def run_research(company, search_key, model_key, model="openrouter/free",
-                 app_url="", endpoint=None, *, timeout=120, on_progress=None):
+                 app_url="", endpoint=None, *, timeout=120, on_progress=None, max_competitors=3):
+    if type(max_competitors) is not int or not 1 <= max_competitors <= 3:
+        raise ValueError("Choose between one and three competitors")
     if not company.strip():
         raise ValueError("Enter a company name first.")
     config = dict(company=company, search_key=search_key, model_key=model_key,
-                  model=model, app_url=app_url, endpoint=endpoint)
+                  model=model, app_url=app_url, endpoint=endpoint, max_competitors=max_competitors)
     return _run_worker(config, timeout, on_progress)
 
 
 def _run_worker(config, timeout, on_progress=None, command=None):
     if timeout <= 0:
         raise ValueError("Research timeout must be positive")
+    reports = []
+    def incomplete(message):
+        if not reports:
+            raise ResearchRunError(message)
+        return {"company": config["company"].strip(), "reports": reports,
+                "partial": True, "status": message,
+                "requested_competitors": config.get("max_competitors", 3)}
+
     started = time.monotonic()
     process = subprocess.Popen(
         command or [sys.executable, str(Path(__file__).resolve()), "--worker"],
@@ -38,16 +48,18 @@ def _run_worker(config, timeout, on_progress=None, command=None):
         while True:
             remaining = timeout - (time.monotonic() - started)
             if remaining <= 0:
-                raise ResearchRunError(
+                return incomplete(
                     f"Research stopped after {timeout:g} seconds. The provider took too long. "
-                    "Try again or select a faster OPENROUTER_MODEL in .env and restart Streamlit."
+                    + ("Try researching one competitor at a time."
+                     if config.get("max_competitors", 3) > 1 else
+                     "The provider could not finish one competitor in time. Retry later.")
                 )
             ready, _, _ = select.select([process.stdout], [], [], min(remaining, 0.2))
             if not ready:
                 continue
             chunk = os.read(process.stdout.fileno(), 65536)
             if not chunk:
-                raise ResearchRunError("The research worker stopped without a result.")
+                return incomplete("The research worker stopped without a result.")
             buffer += chunk
             while b"\n" in buffer:
                 line, buffer = buffer.split(b"\n", 1)
@@ -55,7 +67,10 @@ def _run_worker(config, timeout, on_progress=None, command=None):
                 if event["type"] == "progress" and on_progress:
                     on_progress(event["message"])
                 elif event["type"] == "error":
-                    raise ResearchRunError(event["message"])
+                    return incomplete(event["message"])
+                elif event["type"] == "report":
+                    from models import CompetitorReport
+                    reports.append(CompetitorReport.model_validate(event["report"]))
                 elif event["type"] == "result":
                     from models import CompetitorReport
                     result = event["result"]
@@ -89,10 +104,14 @@ def _worker():
             YouComClient(config["search_key"], endpoint=config["endpoint"]),
             CompetitorAnalyst(config["model_key"], config["model"], config["app_url"]),
             progress=lambda message: emit({"type": "progress", "message": message}),
+            on_report=lambda report: emit({"type": "report", "report": report.model_dump()}),
+            max_competitors=config.get("max_competitors", 3),
         )
         result = pipeline.run(config["company"])
         result["reports"] = [r.model_dump() for r in result["reports"]]
         result["search_results"] = {}
+        result["partial"] = False
+        result["requested_competitors"] = config.get("max_competitors", 3)
         emit({"type": "result", "result": result})
     except Exception as exc:
         if isinstance(exc, ModelOutputError):

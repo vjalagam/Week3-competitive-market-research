@@ -8,7 +8,11 @@ from youcom_client import YouComClient
 
 
 class CompetitiveResearchPipeline:
-    def __init__(self, search_client: YouComClient, analyst: CompetitorAnalyst, progress=None) -> None:
+    def __init__(self, search_client: YouComClient, analyst: CompetitorAnalyst, progress=None, on_report=None, max_competitors=3) -> None:
+        if type(max_competitors) is not int or not 1 <= max_competitors <= 3:
+            raise ValueError("Choose between one and three competitors")
+        self.max_competitors = max_competitors
+        self.on_report = on_report or (lambda report: None)
         self.progress = progress or (lambda message: None)
         self.search_client = search_client
         self.analyst = analyst
@@ -60,11 +64,11 @@ class CompetitiveResearchPipeline:
                 if name.casefold() not in seen:
                     seen.add(name.casefold())
                     names.append(name)
-        competitors = names[:3]
+        competitors = names[:self.max_competitors]
         return {
             "competitor_queue": competitors,
             "reports": [],
-            "status": f"Found {len(competitors[:3])} competitors",
+            "status": f"Found {len(competitors)} competitors",
         }
 
     def _researcher(self, state: ResearchState) -> dict:
@@ -83,10 +87,11 @@ class CompetitiveResearchPipeline:
 
     def _analyst(self, state: ResearchState) -> dict:
         competitor = state["current_competitor"]
-        self.progress(f"Analyzing {competitor} ({len(state.get('reports', [])) + 1} of up to 3)…")
+        self.progress(f"Analyzing {competitor} ({len(state.get('reports', [])) + 1} of up to {self.max_competitors})…")
         report = self.analyst.analyze(
             state["company"], competitor, state.get("search_results", {})
         )
+        self.on_report(report)
         reports = [*state.get("reports", []), report]
         return {
             "reports": reports,
